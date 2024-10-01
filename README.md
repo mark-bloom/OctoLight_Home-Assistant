@@ -3,7 +3,7 @@ A simple plugin that adds a button to the navigation bar for toggling a HomeAssi
 
 Code forked from [OctoLight by gigibu5](https://github.com/gigibu5/OctoLight) with HA integration based on [OctoPrint-PSUControl by kantlivelong](https://github.com/kantlivelong/OctoPrint-PSUControl)
 
-![WebUI interface](img/screenshoot.png)
+![WebUI interface](img/screenshot.png)
 
 ## Setup
 Install via the bundled [Plugin Manager](https://docs.octoprint.org/en/master/bundledplugins/pluginmanager.html) or manually using this URL:
