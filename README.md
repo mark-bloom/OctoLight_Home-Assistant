@@ -50,6 +50,7 @@ _(if the action parameter not given, the action toggle will be used by default)_
 
 ## TO DO
 - [x] Update interface if Light is turned on or off
+- [x] Turn off on finish print (thank you [Nick-Gatti](https://github.com/Nick-Gatti/OctoLight_Home-Assistant/tree/master))
 
 Maybe in the distant future:
-- [ ] Turn off on finish print
+- [ ] Add light settings (e.g. brightness and colour) for turn on
