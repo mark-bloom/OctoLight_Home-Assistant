@@ -49,6 +49,15 @@
         </div>
     </div>
     <div class="control-group">
+        <label class="control-label">Turn Off Delay After Print End</label>
+        <div class="controls">
+            <div class="input-append">
+                <input type="number" min="0" class="input-mini text-right" data-bind="value: settings.plugins.octolightHA.turnOffPrintDelay">
+                <span class="add-on">min</span>
+            </div>
+        </div>
+    </div>
+    <div class="control-group">
         <div class="controls">
             <label class="checkbox">
                 <input type="checkbox" data-bind="checked: settings.plugins.octolightHA.turnOffPrintFailure"> Turn off light on print failure </label>

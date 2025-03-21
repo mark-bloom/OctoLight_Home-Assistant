@@ -9,6 +9,9 @@ import traceback
 # HomeAssistant Compatibility
 import requests
 
+# Timer for timeout after finish
+from octoprint.util import ResettableTimer
+
 class OctoLightHAPlugin(
         octoprint.plugin.AssetPlugin,
         octoprint.plugin.StartupPlugin,
@@ -24,6 +27,7 @@ class OctoLightHAPlugin(
     def __init__(self):
         self.config = dict()
         self.isLightOn = False
+        self._idleTimer = None
 
     ### REMOVE SETTINGS IF UPLOADED ###
     def get_settings_defaults(self):
@@ -34,6 +38,7 @@ class OctoLightHAPlugin(
             verify_certificate = False,
             turnOnPrintStart = False,
             turnOffPrintEnd = False,
+            turnOffPrintDelay = 0,
             turnOffPrintFailure = False,
             turnOffPrintCancellation = False
         )
@@ -236,12 +241,31 @@ class OctoLightHAPlugin(
                 self._logger.debug("PRINT_STARTED: Light state changed.")
             return
         elif (event == Events.PRINT_DONE and self.config['turnOffPrintEnd']) or (event == Events.PRINT_FAILED and self.config['turnOffPrintFailure']) or (event == Events.PRINT_CANCELLED and self.config['turnOffPrintCancellation']):
+            # if self.light_state:
+            #     self.light_state = self.light_toggle()
+            #     self._logger.debug("PRINT_DONE: Light state changed.")
+            # return  
             if self.light_state:
-                self.light_state = self.light_toggle()
-                self._logger.debug("PRINT_DONE: Light state changed.")
+                self.start_idle_timer()
+                self._logger.debug("PRINT_DONE_TIMER_STARTED: Resettable Timer set.")
             return
         
+    def start_idle_timer(self):
+        self.stop_idle_timer()
+        self._idleTimer = ResettableTimer(self.config['turnOffPrintDelay'] * 60 + 1, self.idle_poweroff)
+        self._idleTimer.start()
 
+    def stop_idle_timer(self):
+        if self._idleTimer:
+            self._idleTimer.cancel()
+            self._idleTimer = None
+
+    def idle_poweroff(self):
+        if self.light_state:
+            self.light_state = self.light_toggle()
+            self._logger.debug("PRINT_TIMER_COMPLETE: Light state changed.")
+        return
+    
     def on_settings_save(self, data):
         octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
         self.reload_settings()
