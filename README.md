@@ -57,4 +57,4 @@ _(if the action parameter not given, the action toggle will be used by default)_
 
 Maybe in the future:
 - [ ] Add light settings (e.g. brightness and colour) for turn on
-- [ ] Add options for light-off delay to apply to print failure and cancellation
+- [ ] Add options for light-off delay to apply to print failure and cancellation (possibly individual values)

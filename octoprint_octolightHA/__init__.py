@@ -236,19 +236,21 @@ class OctoLightHAPlugin(
             self._plugin_manager.send_plugin_message(self._identifier, dict(isLightOn=self.light_state))
             return
         elif event == Events.PRINT_STARTED and self.config['turnOnPrintStart']:
+            self.stop_idle_timer()
             if not self.light_state:
                 self.light_state = self.light_toggle()
                 self._logger.debug("PRINT_STARTED: Light state changed.")
             return
-        elif (event == Events.PRINT_DONE and self.config['turnOffPrintEnd']) or (event == Events.PRINT_FAILED and self.config['turnOffPrintFailure']) or (event == Events.PRINT_CANCELLED and self.config['turnOffPrintCancellation']):
-            # if self.light_state:
-            #     self.light_state = self.light_toggle()
-            #     self._logger.debug("PRINT_DONE: Light state changed.")
-            # return  
+        elif (event == Events.PRINT_DONE and self.config['turnOffPrintEnd']):
             if self.light_state:
                 self.start_idle_timer()
                 self._logger.debug("PRINT_DONE_TIMER_STARTED: Resettable Timer set.")
             return
+        elif (event == Events.PRINT_FAILED and self.config['turnOffPrintFailure']) or (event == Events.PRINT_CANCELLED and self.config['turnOffPrintCancellation']):
+            if self.light_state:
+                self.light_state = self.light_toggle()
+                self._logger.debug("PRINT_DONE: Light state changed.")
+            return  
         
     def start_idle_timer(self):
         self.stop_idle_timer()
