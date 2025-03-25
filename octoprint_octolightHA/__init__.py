@@ -281,7 +281,7 @@ class OctoLightHAPlugin(
                 type="github_release",
                 current=self._plugin_version,
 
-                user="mark.bloom",
+                user="mark-bloom",
                 repo="OctoLightHA",
                 pip="https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/{target_version}.zip"
             )
