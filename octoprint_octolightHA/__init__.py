@@ -272,7 +272,7 @@ class OctoLightHAPlugin(
         octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
         self.reload_settings()
 
-    def get_update_information(self):
+    def get_update_information(self):    
         return dict(
             octolightHA=dict(
                 displayName="OctoLightHA",
