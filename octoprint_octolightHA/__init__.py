@@ -283,7 +283,7 @@ class OctoLightHAPlugin(
 
                 user="mark.bloom",
                 repo="OctoLightHA",
-                pip="https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/{target}.zip"
+                pip="https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/{target_version}.zip"
             )
         )
 
