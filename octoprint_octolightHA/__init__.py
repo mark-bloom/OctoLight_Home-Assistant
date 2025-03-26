@@ -9,6 +9,9 @@ import traceback
 # HomeAssistant Compatibility
 import requests
 
+# Timer for timeout after finish
+from octoprint.util import ResettableTimer
+
 class OctoLightHAPlugin(
         octoprint.plugin.AssetPlugin,
         octoprint.plugin.StartupPlugin,
@@ -24,6 +27,7 @@ class OctoLightHAPlugin(
     def __init__(self):
         self.config = dict()
         self.isLightOn = False
+        self._idleTimer = None
 
     ### REMOVE SETTINGS IF UPLOADED ###
     def get_settings_defaults(self):
@@ -34,6 +38,7 @@ class OctoLightHAPlugin(
             verify_certificate = False,
             turnOnPrintStart = False,
             turnOffPrintEnd = False,
+            turnOffPrintDelay = 0,
             turnOffPrintFailure = False,
             turnOffPrintCancellation = False
         )
@@ -231,17 +236,38 @@ class OctoLightHAPlugin(
             self._plugin_manager.send_plugin_message(self._identifier, dict(isLightOn=self.light_state))
             return
         elif event == Events.PRINT_STARTED and self.config['turnOnPrintStart']:
+            self.stop_idle_timer()
             if not self.light_state:
                 self.light_state = self.light_toggle()
                 self._logger.debug("PRINT_STARTED: Light state changed.")
             return
-        elif (event == Events.PRINT_DONE and self.config['turnOffPrintEnd']) or (event == Events.PRINT_FAILED and self.config['turnOffPrintFailure']) or (event == Events.PRINT_CANCELLED and self.config['turnOffPrintCancellation']):
+        elif (event == Events.PRINT_DONE and self.config['turnOffPrintEnd']):
+            if self.light_state:
+                self.start_idle_timer()
+                self._logger.debug("PRINT_DONE_TIMER_STARTED: Resettable Timer set.")
+            return
+        elif (event == Events.PRINT_FAILED and self.config['turnOffPrintFailure']) or (event == Events.PRINT_CANCELLED and self.config['turnOffPrintCancellation']):
             if self.light_state:
                 self.light_state = self.light_toggle()
                 self._logger.debug("PRINT_DONE: Light state changed.")
-            return
+            return  
         
+    def start_idle_timer(self):
+        self.stop_idle_timer()
+        self._idleTimer = ResettableTimer(self.config['turnOffPrintDelay'] * 60 + 1, self.idle_poweroff)
+        self._idleTimer.start()
 
+    def stop_idle_timer(self):
+        if self._idleTimer:
+            self._idleTimer.cancel()
+            self._idleTimer = None
+
+    def idle_poweroff(self):
+        if self.light_state:
+            self.light_state = self.light_toggle()
+            self._logger.debug("PRINT_TIMER_COMPLETE: Light state changed.")
+        return
+    
     def on_settings_save(self, data):
         octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
         self.reload_settings()
@@ -252,22 +278,27 @@ class OctoLightHAPlugin(
                 displayName="OctoLightHA",
                 displayVersion=self._plugin_version,
 
+                # version check: github repository
                 type="github_release",
+                user="mark-bloom",
+                repo="OctoLight_Home-Assistant",
                 current=self._plugin_version,
 
-                user="mark.bloom",
-                repo="OctoLightHA",
-                pip="https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/{target}.zip"
+                pip="https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/{target_version}.zip"
             )
         )
 
     def register_custom_events(self):
         return ["light_state_changed"]
-
+    
+__plugin_name__ = "OctoLight HomeAssistant"
 __plugin_pythoncompat__ = ">=2.7,<4"
-__plugin_implementation__ = OctoLightHAPlugin()
 
-__plugin_hooks__ = {
-    "octoprint.plugin.softwareupdate.check_config":
-    __plugin_implementation__.get_update_information
-}
+def __plugin_load__():
+	global __plugin_implementation__
+	__plugin_implementation__ = OctoLightHAPlugin()
+
+	global __plugin_hooks__
+	__plugin_hooks__ = {
+		"octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information
+	}
