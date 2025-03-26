@@ -3,7 +3,7 @@ A simple plugin that adds a button to the navigation bar for toggling a HomeAssi
 
 Code forked from [OctoLight by gigibu5](https://github.com/gigibu5/OctoLight) with HA integration based on [OctoPrint-PSUControl by kantlivelong](https://github.com/kantlivelong/OctoPrint-PSUControl)
 
-![WebUI interface](img/screenshot.png)
+![WebUI interface](img/screenshoot.png)
 
 ## Setup
 Install via the bundled [Plugin Manager](https://docs.octoprint.org/en/master/bundledplugins/pluginmanager.html) or manually using this URL:
@@ -24,12 +24,10 @@ Curently, you can configure 8 settings, including 4 configuration items:
 
 - `Verify certificate`: Toggle on to verify TLS certificate and not connect on certificate issues (keep disabled if using http on local network).
 
-### Operational settings [as of v0.5]
+### Operational settings [to be introduced in v0.4]
 - `Turn on light on print start`: Turn on the light when OctoPrint receives a "print started" message.
 
 - `Turn off light on print end`: Turn off the light when OctoPrint receives a "print complete" message.
-
-- `Turn off delay`: How long (in minutes) to wait before turning off the light when OctoPrint receives a "print complete" message.
 
 - `Turn off light on print failure`: Turn off the light when OctoPrint receives a "print failure" message.
 
@@ -52,9 +50,6 @@ _(if the action parameter not given, the action toggle will be used by default)_
 
 ## TO DO
 - [x] Update interface if Light is turned on or off
-- [x] Turn off on finish print (thank you [Nick-Gatti](https://github.com/Nick-Gatti/OctoLight_Home-Assistant/tree/master))
-- [x] Add delay before light turns off after completing print.
 
-Maybe in the future:
-- [ ] Add light settings (e.g. brightness and colour) for turn on
-- [ ] Add options for light-off delay to apply to print failure and cancellation (possibly individual values)
+Maybe in the distant future:
+- [ ] Turn off on finish print
