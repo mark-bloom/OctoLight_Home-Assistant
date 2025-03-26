@@ -272,34 +272,33 @@ class OctoLightHAPlugin(
         octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
         self.reload_settings()
 
-    def get_update_information(self):    
+    def get_update_information(self):
         return dict(
             octolightHA=dict(
                 displayName="OctoLightHA",
                 displayVersion=self._plugin_version,
 
+                # version check: github repository
                 type="github_release",
+                user="mark-bloom",
+                repo="OctoLight_Home-Assistant",
                 current=self._plugin_version,
 
-                user="mark-bloom",
-                repo="OctoLightHA",
                 pip="https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/{target_version}.zip"
             )
         )
 
     def register_custom_events(self):
         return ["light_state_changed"]
-
-__plugin_name__ = "OctoLight Home Assistant"
+    
+__plugin_name__ = "OctoLight HomeAssistant"
 __plugin_pythoncompat__ = ">=2.7,<4"
-__plugin_implementation__ = OctoLightHAPlugin()
 
 def __plugin_load__():
-    global __plugin_implementation__
-    __plugin_implementation__ = OctoLightHAPlugin()
+	global __plugin_implementation__
+	__plugin_implementation__ = OctoLightHAPlugin()
 
-    global __plugin_hooks__
-    __plugin_hooks__ = {
-        "octoprint.plugin.softwareupdate.check_config":
-            __plugin_implementation__.get_update_information
-    }
+	global __plugin_hooks__
+	__plugin_hooks__ = {
+		"octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information
+	}
