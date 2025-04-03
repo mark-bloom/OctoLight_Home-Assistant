@@ -3,7 +3,7 @@ A simple plugin that adds a button to the navigation bar for toggling a HomeAssi
 
 Code forked from [OctoLight by gigibu5](https://github.com/gigibu5/OctoLight) with HA integration based on [OctoPrint-PSUControl by kantlivelong](https://github.com/kantlivelong/OctoPrint-PSUControl)
 
-![WebUI interface](img/screenshoot.png)
+![WebUI interface](img/screenshot.png)
 
 ## Setup
 Install via the bundled [Plugin Manager](https://docs.octoprint.org/en/master/bundledplugins/pluginmanager.html) or manually using this URL:
@@ -24,10 +24,12 @@ Curently, you can configure 8 settings, including 4 configuration items:
 
 - `Verify certificate`: Toggle on to verify TLS certificate and not connect on certificate issues (keep disabled if using http on local network).
 
-### Operational settings [to be introduced in v0.4]
+### Operational settings [as of v0.5]
 - `Turn on light on print start`: Turn on the light when OctoPrint receives a "print started" message.
 
 - `Turn off light on print end`: Turn off the light when OctoPrint receives a "print complete" message.
+
+- `Turn off delay`: How long (in minutes) to wait before turning off the light when OctoPrint receives a "print complete" message.
 
 - `Turn off light on print failure`: Turn off the light when OctoPrint receives a "print failure" message.
 
