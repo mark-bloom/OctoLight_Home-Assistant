@@ -1,4 +1,6 @@
 # OctoLight Home Assistant
+***Note: for anyone running versions between `0.0.4` and `0.2.0`, manually uninstall and update to 0.2.1 to fix automated OctoPrint updates***
+
 A simple plugin that adds a button to the navigation bar for toggling a HomeAssistant connected Light.
 
 Code forked from [OctoLight by gigibu5](https://github.com/gigibu5/OctoLight) with HA integration based on [OctoPrint-PSUControl by kantlivelong](https://github.com/kantlivelong/OctoPrint-PSUControl)
