@@ -10,8 +10,13 @@ COLOR_MODES = {"hs", "xy", "rgb", "rgbw", "rgbww"}
 def capabilities(entity_id, attributes):
     if not entity_id.startswith("light."):
         return dict(brightness=False, color=False, flash=False)
-    modes = set(attributes.get("supported_color_modes") or [])
+    raw_modes = attributes.get("supported_color_modes") or []
+    if not isinstance(raw_modes, list) or not all(isinstance(mode, str) for mode in raw_modes):
+        raise HomeAssistantError("Home Assistant returned invalid light colour modes.")
+    modes = set(raw_modes)
     features = attributes.get("supported_features", 0)
+    if not isinstance(features, int):
+        raise HomeAssistantError("Home Assistant returned invalid light features.")
     return dict(
         brightness=bool(modes - {"onoff", "unknown"}) if modes else bool(features & 1),
         color=bool(modes & COLOR_MODES) if modes else bool(features & 16),

@@ -22,9 +22,22 @@ def validate_entity(entity_id):
     return entity_id
 
 
+def validate_state(data):
+    if not isinstance(data, dict) or data.get("state") not in (
+        "on",
+        "off",
+        "unknown",
+        "unavailable",
+    ):
+        raise HomeAssistantError("Home Assistant returned an invalid entity state.")
+    if not isinstance(data.get("attributes", {}), dict):
+        raise HomeAssistantError("Home Assistant returned invalid entity attributes.")
+    return data
+
+
 class HomeAssistant:
     def __init__(self, address, token, verify=True):
-        self.address = (address or "").strip().rstrip("/")
+        self.address = address.strip().rstrip("/") if isinstance(address, str) else ""
         try:
             url = urlsplit(self.address)
             valid = url.scheme in ("http", "https") and url.hostname and url.port != 0
@@ -37,6 +50,8 @@ class HomeAssistant:
         if not isinstance(token, str) or not token.strip():
             raise HomeAssistantError("Enter a Home Assistant long-lived access token.")
         self.token = token.strip()
+        if not isinstance(verify, bool):
+            raise HomeAssistantError("Certificate verification must be enabled or disabled.")
         self.verify = verify
 
     def request(self, method, path, payload=None):
@@ -80,24 +95,14 @@ class HomeAssistant:
             ) from None
 
     def state(self, entity_id):
-        data = self.request("GET", "states/" + validate_entity(entity_id))
-        if not isinstance(data, dict) or data.get("state") not in (
-            "on",
-            "off",
-            "unknown",
-            "unavailable",
-        ):
-            raise HomeAssistantError("Home Assistant returned an invalid entity state.")
-        if not isinstance(data.get("attributes", {}), dict):
-            raise HomeAssistantError("Home Assistant returned invalid entity attributes.")
-        return data
+        return validate_state(self.request("GET", "states/" + validate_entity(entity_id)))
 
     def entities(self):
         data = self.request("GET", "states")
         if not isinstance(data, list):
             raise HomeAssistantError("Home Assistant returned an invalid entity list.")
         return [
-            item
+            validate_state(item)
             for item in data
             if isinstance(item, dict)
             and isinstance(item.get("entity_id"), str)

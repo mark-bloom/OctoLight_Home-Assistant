@@ -47,3 +47,16 @@ def test_invalid_brightness(value):
 def test_invalid_color(value):
     with pytest.raises(HomeAssistantError):
         rgb(value)
+
+
+@pytest.mark.parametrize(
+    "attributes",
+    [
+        {"supported_color_modes": "rgb"},
+        {"supported_color_modes": [{}]},
+        {"supported_features": None},
+    ],
+)
+def test_malformed_capabilities_are_reported(attributes):
+    with pytest.raises(HomeAssistantError):
+        capabilities("light.printer", attributes)

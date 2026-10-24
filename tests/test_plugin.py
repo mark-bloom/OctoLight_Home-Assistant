@@ -87,15 +87,17 @@ def test_failed_command_does_not_invert_state(plugin):
 
 def test_external_change_updates_browser(plugin):
     with patch.object(plugin, "_client") as factory, patch.object(plugin, "_schedule_poll"):
-        factory.return_value.state.return_value = dict(
-            state="on", attributes={"friendly_name": "Printer"}
-        )
+        factory.return_value.entities.return_value = [
+            dict(entity_id="light.printer", state="on", attributes={"friendly_name": "Printer"})
+        ]
         plugin._poll(plugin._generation)
         assert plugin.states["light.printer"]["isLightOn"] is True
         plugin._plugin_manager.send_plugin_message.assert_called_once()
         plugin._poll(plugin._generation)
         assert plugin._plugin_manager.send_plugin_message.call_count == 1
-        factory.return_value.state.return_value = dict(state="off", attributes={})
+        factory.return_value.entities.return_value = [
+            dict(entity_id="light.printer", state="off", attributes={})
+        ]
         plugin._poll(plugin._generation)
         assert plugin.states["light.printer"]["isLightOn"] is False
         assert plugin._plugin_manager.send_plugin_message.call_count == 2
@@ -242,6 +244,56 @@ def test_gcode_rejects_invalid_targets(plugin, parameters):
         submit.assert_not_called()
 
 
+def test_poll_uses_one_request_for_multiple_entities(plugin):
+    plugin.config["additionalEntities"] = [{"entity_id": "switch.room"}]
+    with patch.object(plugin, "_client") as factory, patch.object(plugin, "_schedule_poll"):
+        factory.return_value.entities.return_value = [
+            dict(entity_id="light.printer", state="off", attributes={}),
+            dict(entity_id="switch.room", state="on", attributes={}),
+        ]
+        plugin._poll(plugin._generation)
+        factory.return_value.entities.assert_called_once()
+        factory.return_value.state.assert_not_called()
+        assert plugin.states["switch.room"]["isLightOn"] is True
+
+
+def test_unconfigured_entity_disappearing_is_reported(plugin):
+    with patch.object(plugin, "_client") as factory, patch.object(plugin, "_schedule_poll"):
+        factory.return_value.entities.return_value = []
+        plugin._poll(plugin._generation)
+    assert "not found" in plugin.states["light.printer"]["error"]
+
+
+def test_event_dispatch_and_cached_reads_do_not_wait_for_network_lock(plugin, app):
+    import threading
+
+    held = threading.Event()
+    release = threading.Event()
+
+    def block_network():
+        with plugin._lock:
+            held.set()
+            release.wait(5)
+
+    worker = threading.Thread(target=block_network)
+    worker.start()
+    assert held.wait(2)
+    try:
+        with patch.object(plugin._executor, "submit") as submit:
+            plugin.on_event(Events.PRINT_STARTED, {})
+            submit.assert_called_once()
+        with (
+            app.test_request_context("/"),
+            patch("octoprint_octolightHA.Permissions") as permissions,
+        ):
+            permissions.STATUS.can.return_value = True
+            assert plugin.on_api_get(flask.request).status_code == 200
+        assert not release.is_set()
+    finally:
+        release.set()
+        worker.join(2)
+
+
 @pytest.mark.parametrize(
     "existing,explicit,expected", [(False, False, False), (True, False, True), (True, True, False)]
 )
@@ -251,3 +303,23 @@ def test_legacy_tls_migration(plugin, existing, explicit, expected):
     plugin._settings.has.return_value = explicit
     plugin.on_settings_migrate(1, None)
     assert plugin._settings.set_boolean.called is expected
+
+
+def test_invalid_settings_are_reported_without_overwriting_config(plugin):
+    plugin._settings = Mock()
+    plugin.on_settings_save({"entity_id": "desk_lamp"})
+    plugin._settings.set.assert_not_called()
+    assert plugin.config["entity_id"] == "light.printer"
+    message = plugin._plugin_manager.send_plugin_message.call_args.args[1]
+    assert "complete entity" in message["settingsError"]
+
+
+def test_minimal_extra_entity_is_normalized_for_ui(plugin):
+    data = plugin._validated_settings({"additionalEntities": [{"entity_id": "switch.room"}]})
+    assert data["additionalEntities"][0]["turnOnPrintStart"] is False
+    assert data["additionalEntities"][0]["turnOffPrintDelay"] == 0
+
+
+def test_string_booleans_are_rejected(plugin):
+    with pytest.raises(HomeAssistantError, match="Checkbox"):
+        plugin._validated_settings({"turnOnPrintStart": "false"})
