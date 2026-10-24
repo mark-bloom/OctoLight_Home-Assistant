@@ -32,6 +32,7 @@ develop = [
     "pytest>=7,<10",
     "ruff>=0.9",
     "build>=1.2",
+    "tomli>=2; python_version < '3.11'",
 ]
 
 [project.readme]

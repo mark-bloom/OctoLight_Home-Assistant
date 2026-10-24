@@ -207,7 +207,20 @@ it does not access a physical printer or your Home Assistant. The CI workflow re
 these checks on OctoPrint 1 and 2. Physical device behaviour, especially flash and colour
 reproduction, still needs checking with the relevant Home Assistant integration.
 
-## Plugin-repository listing
+## GitHub automation and plugin-repository listing
+
+The test workflow runs on master pushes, pull requests, manual dispatch and weekly.
+It checks OctoPrint 1.11.8 with Python 3.9/3.10 and OctoPrint 2.0.0rc7 with Python
+3.12, builds isolated distributions, runs installed-package server tests and checks
+the UI in Chromium. Actions are pinned and Dependabot checks GitHub Actions, Python
+and browser-test dependencies weekly. Workflow changes are checked by actionlint.
+
+Pushing a `v*` tag runs the same tests, verifies that the tag matches the version
+in `pyproject.toml`, checks distribution contents and creates a **draft** GitHub
+release with the wheel, source archive and SHA256 checksums. It uses GitHub’s built-in
+token; no PyPI token is needed. Review the draft and publish it when ready. For
+example, version `0.3.0` requires tag `v0.3.0`. No release is created by ordinary
+branch pushes. On a GitHub fork, enable Actions if GitHub has disabled them.
 
 Plugin-repository registration is a separate publishing step. See the
 [registration requirements](https://plugins.octoprint.org/help/registering/) before
