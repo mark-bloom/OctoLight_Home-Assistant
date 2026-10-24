@@ -105,19 +105,39 @@ shutoff. On resume/start, the printing colour replaces the previous status colou
 
 ## OctoDash and G-code
 
-Enable host commands in settings before using these in OctoDash custom actions or
-G-code files processed by OctoPrint:
+Enable **@OCTOLIGHT host commands** in settings, then use them in OctoDash custom
+actions, OctoPrint’s Terminal tab, G-code scripts or streamed G-code files:
 
 ```gcode
 @OCTOLIGHT on
 @OCTOLIGHT off
 @OCTOLIGHT toggle
 @OCTOLIGHT on light.room
+@OCTOLIGHT set brightness=75
+@OCTOLIGHT set color=#ff8000
+@OCTOLIGHT set light.room brightness=75 color=#ff8000
+@OCTOLIGHT set light.printer color=#ff0000 flash=short
+@OCTOLIGHT on brightness=100 color=#ffffff
 ```
 
-The optional target must already be configured. Without a target, the primary entity
-is used. These are OctoPrint host commands, so printing directly from a printer SD
-card does not process them. Commands are queued off the serial dispatch thread.
+| Action | Behaviour |
+| --- | --- |
+| `on [entity_id] [options]` | Turn on, optionally applying brightness, colour or a flash. |
+| `off [entity_id]` | Turn off. |
+| `toggle [entity_id]` | Toggle on/off. |
+| `set [entity_id] options` | Turn on and apply one or more appearance options. |
+
+Appearance options are `brightness=1` through `brightness=100` (percent),
+`color=#RRGGBB` and `flash=short`. Combine them as needed. These use the same
+capability checks as the UI/API; unsupported attributes are rejected. Off/toggle
+commands do not accept appearance options. An omitted entity means the primary
+configured entity; an explicit ID must already be configured. Semicolon comments
+are allowed. Invalid commands are logged without sending a light command.
+
+Commands run asynchronously and do not block OctoPrint’s serial thread or wait
+for the printer’s motion buffer. They are host commands: direct printer-SD-card
+printing does not process them. Custom M-code aliases are unnecessary and are not
+intercepted by this plugin.
 
 ## HTTP API
 

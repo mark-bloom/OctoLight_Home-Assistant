@@ -230,7 +230,7 @@ def test_gcode_is_opt_in_and_queued(plugin):
         plugin.config["enableGcode"] = True
         plugin.process_atcommand(None, "queuing", "OCTOLIGHT", "off")
         submit.assert_called_once_with(
-            plugin._queued_control, "turn_off", "light.printer", plugin._generation
+            plugin._queued_control, "turn_off", "light.printer", plugin._generation, {}
         )
 
 
@@ -323,3 +323,40 @@ def test_minimal_extra_entity_is_normalized_for_ui(plugin):
 def test_string_booleans_are_rejected(plugin):
     with pytest.raises(HomeAssistantError, match="Checkbox"):
         plugin._validated_settings({"turnOnPrintStart": "false"})
+
+
+def test_host_appearance_queues_capability_checked_control(plugin):
+    plugin.config.update(enableGcode=True, additionalEntities=[{"entity_id": "light.room"}])
+    with (
+        patch.object(plugin._executor, "submit") as submit,
+        patch.object(plugin, "_client") as client,
+    ):
+        plugin.process_atcommand(
+            None, "queuing", "OCTOLIGHT", "set light.room brightness=75 color=#ff8000 flash=short"
+        )
+        submit.assert_called_once_with(
+            plugin._queued_control,
+            "turn_on",
+            "light.room",
+            plugin._generation,
+            {"brightness": 75, "color": "#ff8000", "flash": "short"},
+        )
+        client.assert_not_called()
+
+
+def test_host_commands_ignore_other_phases_and_names(plugin):
+    plugin.config["enableGcode"] = True
+    with patch.object(plugin._executor, "submit") as submit:
+        plugin.process_atcommand(None, "sending", "OCTOLIGHT", "on")
+        plugin.process_atcommand(None, "queuing", "OTHER", "on")
+        submit.assert_not_called()
+
+
+def test_queued_host_appearance_reaches_light_control(plugin):
+    with patch.object(plugin, "_control") as control:
+        plugin._queued_control(
+            "turn_on", "light.printer", plugin._generation, {"brightness": 75, "color": "#ff8000"}
+        )
+        control.assert_called_once_with(
+            "turn_on", "light.printer", {"brightness": 75, "color": "#ff8000"}
+        )

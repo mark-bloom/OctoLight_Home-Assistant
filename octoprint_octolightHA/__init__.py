@@ -8,6 +8,7 @@ import octoprint.plugin
 from octoprint.access.permissions import Permissions
 from octoprint.events import Events
 
+from .gcode import parse_atcommand
 from .ha import HomeAssistant, HomeAssistantError, validate_entity, validate_state
 from .lighting import brightness, capabilities, light_attributes, rgb
 
@@ -599,32 +600,28 @@ class OctoLightHAPlugin(
         )
 
     def process_atcommand(self, comm, phase, command, parameters, tags=None, *args, **kwargs):
-        """Opt-in host commands; no firmware M-code is intercepted or forwarded."""
-        if command != "OCTOLIGHT":
+        """Queue host light controls without blocking OctoPrint's serial dispatcher."""
+        if command != "OCTOLIGHT" or phase != "queuing":
             return
         with self._timer_lock:
             if not self._running or not self.config.get("enableGcode"):
                 return
-            parts = parameters.strip().split()
-            actions = {"on": "turn_on", "off": "turn_off", "toggle": "toggle"}
-            if not 1 <= len(parts) <= 2 or parts[0].lower() not in actions:
-                self._logger.warning("Use @OCTOLIGHT on|off|toggle [configured_entity_id]")
-                return
             try:
-                entity_id = self._entity(parts[1] if len(parts) == 2 else None)["entity_id"]
+                action, entity_id, attributes = parse_atcommand(parameters)
+                entity_id = self._entity(entity_id)["entity_id"]
             except HomeAssistantError as error:
                 self._logger.warning("Lighting command rejected: %s", error)
                 return
             self._executor.submit(
-                self._queued_control, actions[parts[0].lower()], entity_id, self._generation
+                self._queued_control, action, entity_id, self._generation, attributes
             )
 
-    def _queued_control(self, action, entity_id, generation):
+    def _queued_control(self, action, entity_id, generation, attributes=None):
         with self._lock:
             if not self._running or generation != self._generation:
                 return
             try:
-                self._control(action, entity_id)
+                self._control(action, entity_id, attributes)
             except HomeAssistantError as error:
                 self._logger.warning("Lighting command failed: %s", error)
 

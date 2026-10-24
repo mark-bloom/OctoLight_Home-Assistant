@@ -1,5 +1,9 @@
 # Changes
 
+## Unreleased
+
+- Extend @OCTOLIGHT with set/on appearance options for brightness, RGB colour and native short flashes. Remove the unreleased custom M-code aliases in favour of one host-command interface.
+
 ## 0.3.0
 
 - Search Home Assistant entities by name or ID, fill unambiguous selections and test unsaved connection settings.
