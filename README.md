@@ -3,7 +3,7 @@
 Control Home Assistant lights and switches from OctoPrint, with brightness, colour,
 print status lighting and delayed shutoff.
 
-Originally based on [Mark Bloom’s plugin](https://github.com/mark-bloom/OctoLight_Home-Assistant),
+Based on [Mark Bloom’s Home Assistant integration](https://github.com/mark-bloom/OctoLight_Home-Assistant),
 [OctoLight by gigibu5](https://github.com/gigibu5/OctoLight) and Home Assistant integration
 ideas from [PSUControl](https://github.com/kantlivelong/OctoPrint-PSUControl).
 
@@ -14,21 +14,48 @@ OctoPrint **2.0.0rc7** / Python 3.12, including real local server startup and AP
 OctoPrint 2 is currently verified against this release candidate; repeat the checks
 when upgrading to later releases. CI repeats these three environments.
 
+| Component | Requirement / listing compatibility | Validation |
+| --- | --- | --- |
+| Python | `>=3.9,<4` | 3.9, 3.10 and 3.12 |
+| OctoPrint | `>=1.11.8,<3` | 1.11.8 and 2.0.0rc7; later releases require verification |
+| Operating system | Linux | Linux CI and local Linux tests; Windows/macOS are not verified |
+| Home Assistant | States/services REST API and a long-lived access token | API simulator; no Home Assistant version or physical light is certified |
+
+Supported entity domains are `light`, `switch` and `input_boolean`. Brightness,
+RGB colour and short flashes depend on capabilities reported by each light.
+
 In OctoPrint’s Plugin Manager, install this URL, then restart OctoPrint:
 
 ```text
 https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/refs/heads/master.zip
 ```
 
-An existing upstream installation uses the same plugin identifier, `octolightHA`,
-so its address, token, entity and print settings are retained. Upgrade the existing plugin in place. Existing implicit TLS verification
-settings are migrated; new installations enable certificate verification by default.
-Automatic updates continue to track the original repository’s GitHub releases. Local commits and build
-artifacts are not published releases.
+Existing installations upgrade in place using the original identity:
 
-**API migration:** GET requests no longer change the light. Integrations using
-`GET ?action=toggle`, `turnOn` or `turnOff` must switch to POST commands. This prevents
-clients such as Octopod from accidentally toggling lights while reading plugin data.
+| Identity | Value |
+| --- | --- |
+| Display name | OctoLight Home Assistant |
+| OctoPrint identifier | `octolightHA` |
+| Python package | `octoprint_octolightHA` |
+| Distribution | `OctoLight-Home-Assistant` |
+| HTTP API | `/api/plugin/octolightHA` |
+| Host command | `@OCTOLIGHT` |
+
+The existing address, token, entity and print settings stay in the same namespace;
+there is no settings import or second plugin to install. Existing implicit TLS
+verification preferences are migrated; new configurations verify certificates by default.
+Automatic updates continue to track `mark-bloom/OctoLight_Home-Assistant` releases.
+Local commits and build artifacts are not published releases.
+
+**API migration:** GET requests no longer change lights. Integrations using
+`GET ?action=toggle`, `turnOn` or `turnOff` must switch to authenticated JSON POST
+commands on the same endpoint. Plain GET safely reads cached state. This prevents
+integrations from accidentally toggling lights when checking plugin status.
+
+The separately published Home Assistant Light Control fork (`ha_light_control`)
+uses different settings and commands. If you installed that fork, disable it before
+using this plugin for the same lights. Its settings are not imported automatically;
+configure this plugin and replace `@HALIGHT` commands with `@OCTOLIGHT` as needed.
 
 ## Setup
 
@@ -177,7 +204,7 @@ when contacting Home Assistant and are omitted from plugin messages and command 
 ## Development and validation
 
 Builds use `pyproject.toml` and isolated setuptools; OctoPrint is not a build dependency.
-The package name, module and plugin identifier stay compatible with existing installations.
+The distribution name, module and plugin identifier retain the original plugin identity.
 
 ```sh
 python -m pip install "OctoPrint==2.0.0rc7" ".[develop]"
@@ -206,3 +233,28 @@ This test uses temporary users, config, localhost ports and a simulated Home Ass
 it does not access a physical printer or your Home Assistant. The CI workflow repeats
 these checks on OctoPrint 1 and 2. Physical device behaviour, especially flash and colour
 reproduction, still needs checking with the relevant Home Assistant integration.
+
+## GitHub automation and plugin-repository maintenance
+
+The test workflow runs on master pushes, pull requests, manual dispatch and weekly.
+It checks OctoPrint 1.11.8 with Python 3.9/3.10 and OctoPrint 2.0.0rc7 with Python
+3.12, builds isolated distributions, runs installed-package server tests and checks
+the UI in Chromium. Actions are pinned and Dependabot checks GitHub Actions, Python
+and browser-test dependencies weekly. Workflow changes are checked by actionlint.
+
+Pushing a `v*` tag runs the same tests, verifies that the tag matches the version
+in `pyproject.toml`, checks distribution contents and creates a **draft** GitHub
+release with notes from the matching `CHANGELOG.md` entry, the wheel, source archive
+and SHA256 checksums. A missing or empty entry stops the release. It uses GitHub’s built-in
+token; no PyPI token is needed. Review the draft and publish it when ready. For
+example, version `0.3.0` requires tag `v0.3.0`. No release is created by ordinary
+branch pushes. On a GitHub fork, enable Actions if GitHub has disabled them.
+
+The plugin is already registered as `octolightHA`. Update the existing entry in
+[the OctoPrint Plugin Repository](https://github.com/OctoPrint/plugins.octoprint.org)
+when publishing support or feature changes; do not create a second registration.
+Keep its source and archive URLs pointing to the agreed upstream release source.
+The listing should reflect the compatibility table above, include current screenshots
+and declare the required `ai-developed` attribute. See the
+[registration guidance](https://plugins.octoprint.org/help/registering/).
+Listing files and screenshots belong in the plugin-repository project.
