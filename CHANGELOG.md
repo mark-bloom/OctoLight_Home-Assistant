@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Include the AGPL license text and maintainer metadata.
+
 - Extend @OCTOLIGHT with set/on appearance options for brightness, RGB colour and native short flashes. Remove the unreleased custom M-code aliases in favour of one host-command interface.
 
 ## 0.3.0

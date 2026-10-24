@@ -206,3 +206,10 @@ This test uses temporary users, config, localhost ports and a simulated Home Ass
 it does not access a physical printer or your Home Assistant. The CI workflow repeats
 these checks on OctoPrint 1 and 2. Physical device behaviour, especially flash and colour
 reproduction, still needs checking with the relevant Home Assistant integration.
+
+## Plugin-repository listing
+
+Plugin-repository registration is a separate publishing step. See the
+[registration requirements](https://plugins.octoprint.org/help/registering/) before
+submitting a listing, including the required AI-assisted-development declaration.
+No listing or release has been published from this working repository.

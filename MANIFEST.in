@@ -5,3 +5,4 @@ include Taskfile.yml
 include package.json package-lock.json
 recursive-include tests *.py *.cjs
 include CHANGELOG.md
+include LICENSE

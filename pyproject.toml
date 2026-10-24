@@ -9,6 +9,7 @@ name = "OctoLight-Home-Assistant"
 version = "0.3.0"
 description = "Home Assistant lights and switches, brightness, colour and print status automation for OctoPrint."
 authors = [
+    { name = "idontwantfame" },
     { name = "Mark Bloom > forked off Žiga Kralj", email = "markbloom@outlook.com" },
 ]
 requires-python = ">=3.9,<4"
@@ -24,6 +25,7 @@ octolightHA = "octoprint_octolightHA"
 
 [project.urls]
 Homepage = "https://github.com/mark-bloom/OctoLight_Home-Assistant"
+Source = "https://github.com/mark-bloom/OctoLight_Home-Assistant"
 
 [project.optional-dependencies]
 develop = [
