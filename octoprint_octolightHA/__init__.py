@@ -1,304 +1,347 @@
-# -*- coding: utf-8 -*-
-from __future__ import absolute_import, unicode_literals
+"""OctoPrint controls and print automation for Home Assistant lights."""
+from concurrent.futures import ThreadPoolExecutor
+from threading import RLock, Timer
 
-import octoprint.plugin
-from octoprint.events import Events
 import flask
-import traceback
+import octoprint.plugin
+from octoprint.access.permissions import Permissions
+from octoprint.events import Events
 
-# HomeAssistant Compatibility
-import requests
+from .ha import HomeAssistant, HomeAssistantError, validate_entity
 
-# Timer for timeout after finish
-from octoprint.util import ResettableTimer
 
 class OctoLightHAPlugin(
-        octoprint.plugin.AssetPlugin,
-        octoprint.plugin.StartupPlugin,
-        octoprint.plugin.TemplatePlugin,
-        octoprint.plugin.SimpleApiPlugin,
-        octoprint.plugin.SettingsPlugin,
-        octoprint.plugin.EventHandlerPlugin,
-        octoprint.plugin.RestartNeedingPlugin
-    ):
-
-    light_state = False
-
+    octoprint.plugin.AssetPlugin,
+    octoprint.plugin.StartupPlugin,
+    octoprint.plugin.ShutdownPlugin,
+    octoprint.plugin.TemplatePlugin,
+    octoprint.plugin.SimpleApiPlugin,
+    octoprint.plugin.SettingsPlugin,
+    octoprint.plugin.EventHandlerPlugin,
+):
     def __init__(self):
-        self.config = dict()
-        self.isLightOn = False
-        self._idleTimer = None
+        self.config = {}
+        self.states = {}
+        self._lock = RLock()
+        self._poll_timer = None
+        self._idle_timers = {}
+        self._generation = 0
+        self._print_generation = 0
+        self._running = False
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="octolight")
 
-    ### REMOVE SETTINGS IF UPLOADED ###
     def get_settings_defaults(self):
         return dict(
-            address = '',
-            api_key = '',
-            entity_id = '',
-            verify_certificate = False,
-            turnOnPrintStart = False,
-            turnOffPrintEnd = False,
-            turnOffPrintDelay = 0,
-            turnOffPrintFailure = False,
-            turnOffPrintCancellation = False
+            address="", api_key="", entity_id="", verify_certificate=True,
+            turnOnPrintStart=False, turnOffPrintEnd=False, turnOffPrintDelay=0,
+            turnOffPrintFailure=False, turnOffPrintCancellation=False,
+            pollInterval=10, icon="lightbulb", additionalEntities=[],
         )
-    
+
+    def get_settings_restricted_paths(self):
+        return {"admin": [["api_key"]]}
+
+    def get_settings_version(self):
+        return 1
+
+    def on_settings_migrate(self, target, current):
+        # Older defaults disabled verification, so an absent stored key can mean
+        # an existing self-signed installation. Preserve it only during upgrade.
+        if (
+            current is None
+            and self._settings.get(["address"])
+            and not self._settings.has(["verify_certificate"], incl_defaults=False)
+        ):
+            self._settings.set_boolean(["verify_certificate"], False)
+
     def on_settings_initialized(self):
         self.reload_settings()
 
     def reload_settings(self):
-        for k, v in self.get_settings_defaults().items():
-            if type(v) == str:
-                v = self._settings.get([k])
-            elif type(v) == int:
-                v = self._settings.get_int([k])
-            elif type(v) == float:
-                v = self._settings.get_float([k])
-            elif type(v) == bool:
-                v = self._settings.get_boolean([k])
+        with self._lock:
+            defaults = self.get_settings_defaults()
+            config = {}
+            for key, default in defaults.items():
+                getter = self._settings.get_boolean if isinstance(default, bool) else self._settings.get
+                value = getter([key])
+                config[key] = default if value is None else value
+            config["address"] = config["address"].strip().rstrip("/")
+            self.config = config
+            self.states = {}
+            self._generation += 1
+            self._cancel_timers()
+            if self._running:
+                self._schedule_poll(0)
 
-            self.config[k] = v
-            self._logger.debug("{}: {}".format(k, v))
+    def on_settings_save(self, data):
+        # Validate before persisting; old installations retain their TLS preference.
+        merged = dict(self.config, **data)
+        if merged.get("address") or merged.get("api_key"):
+            HomeAssistant(merged["address"], merged["api_key"], merged["verify_certificate"])
+        if merged.get("entity_id"):
+            validate_entity(merged["entity_id"].strip())
+        self._validate_settings(merged)
+        data = dict(data)
+        if "address" in data:
+            data["address"] = data["address"].strip().rstrip("/")
+        if "entity_id" in data:
+            data["entity_id"] = data["entity_id"].strip()
+        super().on_settings_save(data)
+        self.reload_settings()
+
+    @staticmethod
+    def _validate_settings(config):
+        try:
+            interval = float(config["pollInterval"])
+            delay = float(config["turnOffPrintDelay"])
+            if not 5 <= interval <= 3600 or not 0 <= delay <= 1440:
+                raise ValueError
+        except (ValueError, TypeError, KeyError):
+            raise HomeAssistantError("Polling must be 5–3600 seconds; shutoff delay must be 0–1440 minutes.") from None
+        if config.get("icon") not in ("lightbulb", "power-off"):
+            raise HomeAssistantError("Choose the lightbulb or power icon.")
+        extras = config.get("additionalEntities", [])
+        if not isinstance(extras, list) or len(extras) > 20:
+            raise HomeAssistantError("Configure at most 20 additional entities.")
+        ids = {config.get("entity_id")}
+        for entity in extras:
+            if not isinstance(entity, dict):
+                raise HomeAssistantError("Invalid additional entity configuration.")
+            entity_id = validate_entity(entity.get("entity_id"))
+            if entity_id in ids:
+                raise HomeAssistantError("Each configured entity must be unique.")
+            ids.add(entity_id)
+            if entity.get("icon", "lightbulb") not in ("lightbulb", "power-off"):
+                raise HomeAssistantError("Choose the lightbulb or power icon.")
 
     def get_template_configs(self):
-        return [
-            dict(type="navbar", custom_bindings=True),
-            dict(type="settings", custom_bindings=True)
-        ]
+        return [dict(type="navbar", custom_bindings=True), dict(type="settings", custom_bindings=True)]
 
     def get_assets(self):
-        # Define your plugin's asset files to automatically include in the
-        # core UI here.
-        return dict(
-            js=["js/octolightHA.js"],
-            css=["css/octolightHA.css"],
-            #less=["less/octolightHA.less"]
-        )
-    
-    def get_HA_state(self):
-        # Agnostic to entity type
-        self._logger.debug("Running get_HA_state")
-        _entity_id = self.config['entity_id']
-        url = self.config['address'] + '/api/states/' + _entity_id
-        self._logger.debug("get_HA_state url is: {}".format(url))
-        
-        headers = dict(Authorization='Bearer ' + self.config['api_key'])
+        return dict(js=["js/octolightHA.js"], css=["css/octolightHA.css"])
 
-        response = None
-        status = None
+    def _client(self, config=None):
+        config = self.config if config is None else config
+        return HomeAssistant(config.get("address"), config.get("api_key"), config.get("verify_certificate", True))
 
-        verify_certificate = self.config['verify_certificate']
+    def _entities(self):
+        entities = []
+        if self.config.get("entity_id"):
+            entities.append(dict(entity_id=self.config["entity_id"], icon=self.config.get("icon", "lightbulb")))
+        return entities + self.config.get("additionalEntities", [])
+
+    def _entity(self, entity_id=None):
+        entity_id = entity_id or self.config.get("entity_id")
+        for entity in self._entities():
+            if entity["entity_id"] == entity_id:
+                return entity
+        raise HomeAssistantError("Choose and save a Home Assistant entity in plugin settings first.")
+
+    def _snapshot(self):
+        primary = self.states.get(self.config.get("entity_id"), {})
+        return dict(state=primary.get("isLightOn"), isLightOn=primary.get("isLightOn"),
+                    entities=[dict(dict(name=entity["entity_id"], isLightOn=None, available=False,
+                                        error=None, attributes={}), **entity,
+                                   ) | self.states.get(entity["entity_id"], {}) for entity in self._entities()])
+
+    def _publish(self):
+        self._plugin_manager.send_plugin_message(self._identifier, self._snapshot())
+
+    def _refresh(self, entity_id):
         try:
-            response = requests.get(url, headers=headers, verify=verify_certificate)
-            self._logger.debug("get_HA_state response is: {}".format(response))
-        except (
-                requests.exceptions.InvalidURL,
-                requests.exceptions.ConnectionError
-        ):
-            self._logger.error("Unable to communicate with server. Check settings.")
-        except Exception:
-            self._logger.exception("Exception while making API call")
+            raw = self._client().state(entity_id)
+            state = raw["state"]
+            attributes = raw.get("attributes", {})
+            item = dict(isLightOn={"on": True, "off": False}.get(state),
+                        available=state in ("on", "off"), error=None,
+                        name=attributes.get("friendly_name", entity_id),
+                        attributes={key: attributes[key] for key in (
+                            "brightness", "rgb_color", "hs_color", "supported_color_modes", "supported_features"
+                        ) if key in attributes})
+        except HomeAssistantError as error:
+            item = dict(isLightOn=None, available=False, error=str(error), attributes={})
+        self.states[entity_id] = item
+        return item
 
+    def _poll(self, generation):
+        with self._lock:
+            if not self._running or generation != self._generation:
+                return
+            previous = self._snapshot()
+            for entity in self._entities():
+                self._refresh(entity["entity_id"])
+            if previous != self._snapshot():
+                self._publish()
+            self._schedule_poll()
+
+    def _schedule_poll(self, delay=None):
+        if self._poll_timer:
+            self._poll_timer.cancel()
         try:
-            status = response.json()['state']
-            self._logger.debug("Status response formatted as: {}".format(status))
-        except Exception as e:
-            status = 'off'
-            self._logger.error("Status response invalid format: {}".format(status))
-            
-        if(status == 'on'):
-            light_bool = True
-        else:
-            light_bool = False
+            interval = max(5, min(3600, float(self.config.get("pollInterval", 10))))
+        except (ValueError, TypeError):
+            interval = 10
+        self._poll_timer = Timer(interval if delay is None else delay, self._poll, (self._generation,))
+        self._poll_timer.daemon = True
+        self._poll_timer.start()
 
-        self._logger.debug("STATUS: Current light status is: {}".format(self.light_state))
-        return light_bool
-    
-    def toggle_HA_state(self):
-        ## AGNOSTIC
-        self._logger.debug("Running toggle_HA_state")
-        _entity_id = self.config['entity_id']
-        _entity_type = _entity_id.split('.')[0]
-        self._logger.debug("Entity: ",_entity_id)
-
-        url = self.config['address'] + '/api/services/'+ _entity_type +'/toggle'
-        data = '{"entity_id":"' + _entity_id + '"}'
-        headers = dict(Authorization='Bearer ' + self.config['api_key'])
-        verify_certificate = self.config['verify_certificate']
-        response = None
-        
-        # Check current status
-        light_bool = self.get_HA_state()
-        
-        try:
-            response = requests.post(url, headers=headers, data=data, verify=verify_certificate)
-        except (
-                requests.exceptions.InvalidURL,
-                requests.exceptions.ConnectionError
-        ):
-            self._logger.error("Unable to communicate with server. Check settings.")
-        except Exception as e:
-            self._logger.error(traceback.format_exc())
-        
-        # Invert, get_HA_state takes an undetermined amount of time
-        light_bool = not light_bool
-        
-        self._logger.debug("TOGGLE: Current light status is (expected): {}".format(light_bool))
-        return light_bool
-        
     def on_after_startup(self):
-        self._logger.info("--------------------------------------------")
-        self._logger.info("OctoLightHA started, listening for GET request")
-        self._logger.info("Address: {}, API_Key: {}, Entity_ID: {}, Verify_Certificate: {}".format(
-            self._settings.get(["address"]),
-            self._settings.get(["api_key"]),
-            self._settings.get(["entity_id"]),
-            self._settings.get(["verify_certificate"]),
-        ))
+        with self._lock:
+            self._running = True
+            self._schedule_poll(0)
+        self._logger.info("OctoLight Home Assistant started")
 
-        self.light_state = self.get_HA_state()
-        self.isLightOn = self.light_state
-        self._plugin_manager.send_plugin_message(self._identifier, dict(isLightOn=self.light_state))
-        self._logger.debug("POST request. Light state: {}, isLightOn: {}".format(
-            self.light_state,
-            self.isLightOn
-        ))
-        
-        self._logger.debug("Current light status is: {}".format(self.light_state))
-        self._logger.debug("--------------------------------------------")
+    def _cancel_idle(self, entity_id=None):
+        ids = [entity_id] if entity_id else list(self._idle_timers)
+        for key in ids:
+            timer = self._idle_timers.pop(key, None)
+            if timer:
+                timer[0].cancel()
 
-        self._plugin_manager.send_plugin_message(self._identifier, dict(isLightOn=self.light_state))
+    def _cancel_timers(self):
+        self._cancel_idle()
+        if self._poll_timer:
+            self._poll_timer.cancel()
+            self._poll_timer = None
 
-    def light_toggle(self):
-        self._logger.debug("PRE request. Light state: {}, isLightOn: {}".format(
-            self.light_state,
-            self.isLightOn
-        ))		
-        self.light_state = self.toggle_HA_state() # Returns the current state of the light
-        self.isLightOn = self.light_state
-        self._plugin_manager.send_plugin_message(self._identifier, dict(isLightOn=self.light_state))
-        self._logger.debug("POST request. Light state: {}, isLightOn: {}".format(
-            self.light_state,
-            self.isLightOn
-        ))
-        return self.light_state
+    def on_shutdown(self):
+        with self._lock:
+            self._running = False
+            self._generation += 1
+            self._cancel_timers()
+        self._executor.shutdown(wait=False, cancel_futures=True)
+
+    def _control(self, action, entity_id=None, attributes=None, manual=True):
+        with self._lock:
+            entity_id = self._entity(entity_id)["entity_id"]
+            if manual:
+                self._cancel_idle(entity_id)
+            try:
+                self._client().service(entity_id, action, **(attributes or {}))
+            except HomeAssistantError as error:
+                self.states[entity_id] = dict(isLightOn=None, available=False, error=str(error), attributes={})
+                self._publish()
+                raise
+            self._refresh(entity_id)
+            self._publish()
+            return self._snapshot()
+
+    def is_api_protected(self):
+        return True
+
+    def get_api_commands(self):
+        return dict(toggle=[], turnOn=[], turnOff=[], discover=[], test=[])
 
     def on_api_get(self, request):
-        old_isLightOn = self.isLightOn
-        self._logger.debug("API REQUEST isLightOn: {}".format(self.isLightOn))
-        action = request.args.get('action', default="toggle", type=str)
+        if not Permissions.STATUS.can():
+            flask.abort(403)
+        if request.args.get("action", "getState") != "getState":
+            return flask.jsonify(error="Use POST commands for light control."), 405
+        with self._lock:
+            return flask.jsonify(self._snapshot())
 
-        if action == "toggle":
-            self._logger.debug("Running api action toggle")
-            self.light_toggle()
-
-            if (old_isLightOn != self.isLightOn):
-                self._logger.debug("TOGGLE: Light state changed.")
-
-            return flask.jsonify(state=self.light_state)
-
-        elif action == "getState":
-            # Unused
-            self._logger.debug("Running api action getstate")
-            self.light_state = self.get_HA_state()
-            self.isLightOn = self.light_state
-
-            if (old_isLightOn != self.isLightOn):
-                self._logger.debug("GETSTATE: Light state changed.")
-
-            return flask.jsonify(state=self.light_state)
-
-        elif action == "turnOn":
-            # Unused
-            self._logger.debug("Running api action turnon")
-            if not self.light_state:
-                self.light_state = self.light_toggle()
-            if (old_isLightOn != self.isLightOn):
-                self._logger.debug("TURNON: Light state changed.")
-
-            return flask.jsonify(state=self.light_state)
-
-        elif action == "turnOff":
-            # Unused
-            self._logger.debug("Running api action turnoff")
-            if self.light_state:
-                self.light_state = self.light_toggle()
-            if (old_isLightOn != self.isLightOn):
-                self._logger.debug("TURNOFF: Light state changed.")
-
-            return flask.jsonify(state=self.light_state)
-
-        else:
-            return flask.jsonify(error="action not recognized")
+    def on_api_command(self, command, data):
+        if command in ("discover", "test"):
+            if not Permissions.SETTINGS.can():
+                flask.abort(403)
+        elif not Permissions.CONTROL.can():
+            flask.abort(403)
+        try:
+            with self._lock:
+                if command in ("discover", "test"):
+                    # Unsaved connection fields allow setup without a save/reload cycle.
+                    config = dict(self.config)
+                    for key in ("address", "api_key", "verify_certificate"):
+                        if key in data:
+                            config[key] = data[key]
+                    client = self._client(config)
+                    if command == "test":
+                        raw = client.state(data.get("entity_id", self.config.get("entity_id")))
+                        return flask.jsonify(state=raw["state"], attributes=raw.get("attributes", {}))
+                    entities = client.entities()
+                    return flask.jsonify(entities=[dict(entity_id=e["entity_id"],
+                        name=e.get("attributes", {}).get("friendly_name", e["entity_id"]),
+                        state=e.get("state")) for e in entities])
+                actions = dict(toggle="toggle", turnOn="turn_on", turnOff="turn_off")
+                if command not in actions:
+                    return flask.jsonify(error="Unknown command."), 400
+                return flask.jsonify(self._control(actions[command], data.get("entity_id")))
+        except HomeAssistantError as error:
+            return flask.jsonify(error=str(error)), 400
 
     def on_event(self, event, payload):
         if event == Events.CLIENT_OPENED:
-            self._plugin_manager.send_plugin_message(self._identifier, dict(isLightOn=self.light_state))
+            with self._lock:
+                self._publish()
             return
-        elif event == Events.PRINT_STARTED and self.config['turnOnPrintStart']:
-            self.stop_idle_timer()
-            if not self.light_state:
-                self.light_state = self.light_toggle()
-                self._logger.debug("PRINT_STARTED: Light state changed.")
-            return
-        elif (event == Events.PRINT_DONE and self.config['turnOffPrintEnd']):
-            if self.light_state:
-                self.start_idle_timer()
-                self._logger.debug("PRINT_DONE_TIMER_STARTED: Resettable Timer set.")
-            return
-        elif (event == Events.PRINT_FAILED and self.config['turnOffPrintFailure']) or (event == Events.PRINT_CANCELLED and self.config['turnOffPrintCancellation']):
-            if self.light_state:
-                self.light_state = self.light_toggle()
-                self._logger.debug("PRINT_DONE: Light state changed.")
-            return  
-        
-    def start_idle_timer(self):
-        self.stop_idle_timer()
-        self._idleTimer = ResettableTimer(self.config['turnOffPrintDelay'] * 60 + 1, self.idle_poweroff)
-        self._idleTimer.start()
+        with self._lock:
+            # Cancel synchronously even when print-start lighting is disabled.
+            if event == Events.PRINT_STARTED:
+                self._print_generation += 1
+                self._cancel_idle()
+            if self._running and event in (Events.PRINT_STARTED, Events.PRINT_DONE,
+                                           Events.PRINT_FAILED, Events.PRINT_CANCELLED):
+                self._executor.submit(self._handle_print_event, event, self._generation, self._print_generation)
 
-    def stop_idle_timer(self):
-        if self._idleTimer:
-            self._idleTimer.cancel()
-            self._idleTimer = None
+    def _handle_print_event(self, event, generation, print_generation):
+        with self._lock:
+            if not self._running or generation != self._generation or print_generation != self._print_generation:
+                return
+            for entity in self._entities():
+                config = dict(self.config, **entity)
+                entity_id = entity["entity_id"]
+                try:
+                    if event == Events.PRINT_STARTED and config["turnOnPrintStart"]:
+                        self._control("turn_on", entity_id, manual=False)
+                    elif event == Events.PRINT_DONE and config["turnOffPrintEnd"]:
+                        self._cancel_idle(entity_id)
+                        delay = max(0, float(config["turnOffPrintDelay"])) * 60
+                        if delay == 0:
+                            self._control("turn_off", entity_id, manual=False)
+                        else:
+                            token = object()
+                            timer = Timer(delay, self._idle_off, (entity_id, generation, token))
+                            timer.daemon = True
+                            self._idle_timers[entity_id] = (timer, token)
+                            timer.start()
+                    elif ((event == Events.PRINT_FAILED and config["turnOffPrintFailure"]) or
+                          (event == Events.PRINT_CANCELLED and config["turnOffPrintCancellation"])):
+                        self._cancel_idle(entity_id)
+                        self._control("turn_off", entity_id, manual=False)
+                except (HomeAssistantError, ValueError, TypeError) as error:
+                    self._logger.warning("Print lighting failed: %s", error)
 
-    def idle_poweroff(self):
-        if self.light_state:
-            self.light_state = self.light_toggle()
-            self._logger.debug("PRINT_TIMER_COMPLETE: Light state changed.")
-        return
-    
-    def on_settings_save(self, data):
-        octoprint.plugin.SettingsPlugin.on_settings_save(self, data)
-        self.reload_settings()
+    def _idle_off(self, entity_id, generation, token):
+        with self._lock:
+            if not self._running or generation != self._generation or entity_id not in self._idle_timers:
+                return
+            if self._idle_timers[entity_id][1] is not token:
+                return
+            self._idle_timers.pop(entity_id, None)
+            # A new print must never be darkened by a previous print timer.
+            if self._printer.is_printing() or self._printer.is_paused():
+                return
+            try:
+                self._control("turn_off", entity_id, manual=False)
+            except HomeAssistantError as error:
+                self._logger.warning("Delayed lighting failed: %s", error)
 
     def get_update_information(self):
-        return dict(
-            octolightHA=dict(
-                displayName="OctoLightHA",
-                displayVersion=self._plugin_version,
+        return dict(octolightHA=dict(
+            displayName="OctoLight Home Assistant", displayVersion=self._plugin_version,
+            type="github_release", user="mark-bloom", repo="OctoLight_Home-Assistant",
+            current=self._plugin_version,
+            pip="https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/{target_version}.zip",
+        ))
 
-                # version check: github repository
-                type="github_release",
-                user="mark-bloom",
-                repo="OctoLight_Home-Assistant",
-                current=self._plugin_version,
 
-                pip="https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/{target_version}.zip"
-            )
-        )
+__plugin_name__ = "OctoLight Home Assistant"
+__plugin_pythoncompat__ = ">=3.9,<4"
 
-    def register_custom_events(self):
-        return ["light_state_changed"]
-    
-__plugin_name__ = "OctoLight HomeAssistant"
-__plugin_pythoncompat__ = ">=2.7,<4"
 
 def __plugin_load__():
-	global __plugin_implementation__
-	__plugin_implementation__ = OctoLightHAPlugin()
-
-	global __plugin_hooks__
-	__plugin_hooks__ = {
-		"octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information
-	}
+    global __plugin_implementation__, __plugin_hooks__
+    __plugin_implementation__ = OctoLightHAPlugin()
+    __plugin_hooks__ = {
+        "octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information,
+    }

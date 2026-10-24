@@ -1,3 +1,9 @@
-.off{
-    filter: grayscale(100%);
+#navbar_plugin_octolightHA .octolight-indicator {
+    color: #ffdf00 !important;
+    cursor: pointer;
+    user-select: none;
 }
+#navbar_plugin_octolightHA .octolight-indicator.off { color: #888 !important; }
+#navbar_plugin_octolightHA .octolight-indicator.unavailable { opacity: .5; }
+#navbar_plugin_octolightHA .octolight-indicator[aria-disabled="true"] { cursor: default; }
+#settings_plugin_octolightHA .octolight-entity { border-top: 1px solid #ccc; padding-top: 12px; }
