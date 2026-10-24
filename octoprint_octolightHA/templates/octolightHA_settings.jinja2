@@ -84,6 +84,34 @@
                 <input type="checkbox" data-bind="checked: settings.plugins.octolightHA.turnOffPrintCancellation"> Turn off light on print cancellation </label>
         </div>
     </div>
+    <h5>Light appearance</h5>
+    <p>These preferences apply to capable lights, including additional entities. Switches retain on/off controls.</p>
+    <label class="checkbox"><input type="checkbox" data-bind="checked: settings.plugins.octolightHA.applyBrightness">Set brightness when turning on</label>
+    <label>Brightness (%) <input type="number" min="1" max="100" data-bind="value: settings.plugins.octolightHA.brightness"></label>
+    <label class="checkbox"><input type="checkbox" data-bind="checked: settings.plugins.octolightHA.applyColor">Set colour when turning on</label>
+    <label>Colour <input type="color" data-bind="value: settings.plugins.octolightHA.color"></label>
+    <label class="checkbox"><input type="checkbox" data-bind="checked: settings.plugins.octolightHA.statusColorsEnabled">Use print status colours (turns capable lights on)</label>
+    <label>Printing / resumed <input type="color" data-bind="value: settings.plugins.octolightHA.printingColor"></label>
+    <label>Paused <input type="color" data-bind="value: settings.plugins.octolightHA.pausedColor"></label>
+    <label>Completed <input type="color" data-bind="value: settings.plugins.octolightHA.successColor"></label>
+    <label>Failed / printer error <input type="color" data-bind="value: settings.plugins.octolightHA.errorColor"></label>
+    <label>Cancelled <input type="color" data-bind="value: settings.plugins.octolightHA.cancelledColor"></label>
+    <label class="checkbox"><input type="checkbox" data-bind="checked: settings.plugins.octolightHA.alertFlash">Short flash on failure or printer error, when the light supports it</label>
+    <p>Failure/cancellation shutoff takes priority over colours. Completion colours remain until the configured shutoff delay.</p>
+    <h5>Live controls (saved entities)</h5>
+    <!-- ko foreach: entities -->
+    <div class="octolight-entity">
+        <strong data-bind="text: name || entity_id"></strong>
+        <button type="button" class="btn" data-bind="click: $root.toggle, enable: $root.canControl() &amp;&amp; !$root.busy(), text: isLightOn ? 'Turn off' : 'Turn on'"></button>
+        <span role="status" data-bind="text: error"></span>
+        <!-- ko if: capabilities.brightness -->
+        <label>Brightness (%) <input type="range" min="1" max="100" data-bind="value: brightnessValue, event: {change: $root.setBrightness}, enable: $root.canControl() &amp;&amp; !$root.busy()"></label>
+        <!-- /ko -->
+        <!-- ko if: capabilities.color -->
+        <label>Colour <input type="color" data-bind="value: colorValue, event: {change: $root.setColor}, enable: $root.canControl() &amp;&amp; !$root.busy()"></label>
+        <!-- /ko -->
+    </div>
+    <!-- /ko -->
     <h5>Additional lights and switches</h5>
     <p>Use the search results above to copy a complete entity ID. Each entity has its own print settings.</p>
     <!-- ko foreach: settings.plugins.octolightHA.additionalEntities -->

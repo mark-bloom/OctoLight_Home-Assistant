@@ -8,6 +8,7 @@ from octoprint.access.permissions import Permissions
 from octoprint.events import Events
 
 from .ha import HomeAssistant, HomeAssistantError, validate_entity
+from .lighting import brightness, capabilities, light_attributes, rgb
 
 
 class OctoLightHAPlugin(
@@ -36,6 +37,10 @@ class OctoLightHAPlugin(
             turnOnPrintStart=False, turnOffPrintEnd=False, turnOffPrintDelay=0,
             turnOffPrintFailure=False, turnOffPrintCancellation=False,
             pollInterval=10, icon="lightbulb", additionalEntities=[],
+            applyBrightness=False, brightness=100, applyColor=False, color="#ffffff",
+            statusColorsEnabled=False, alertFlash=False,
+            printingColor="#ffffff", pausedColor="#ff9900", successColor="#00ff00",
+            errorColor="#ff0000", cancelledColor="#ff6600",
         )
 
     def get_settings_restricted_paths(self):
@@ -91,6 +96,9 @@ class OctoLightHAPlugin(
 
     @staticmethod
     def _validate_settings(config):
+        brightness(config.get("brightness", 100))
+        for key in ("color", "printingColor", "pausedColor", "successColor", "errorColor", "cancelledColor"):
+            rgb(config.get(key, "#ffffff"))
         try:
             interval = float(config["pollInterval"])
             delay = float(config["turnOffPrintDelay"])
@@ -113,6 +121,10 @@ class OctoLightHAPlugin(
             ids.add(entity_id)
             if entity.get("icon", "lightbulb") not in ("lightbulb", "power-off"):
                 raise HomeAssistantError("Choose the lightbulb or power icon.")
+            # Validate per-entity overrides with the same limits as the primary.
+            override = dict(config, **entity)
+            override["additionalEntities"] = []
+            OctoLightHAPlugin._validate_settings(override)
 
     def get_template_configs(self):
         return [dict(type="navbar", custom_bindings=True), dict(type="settings", custom_bindings=True)]
@@ -139,10 +151,13 @@ class OctoLightHAPlugin(
 
     def _snapshot(self):
         primary = self.states.get(self.config.get("entity_id"), {})
+        entities = []
+        for entity in self._entities():
+            entities.append(dict(name=entity["entity_id"], isLightOn=None, available=False,
+                                 error=None, attributes={}, capabilities={}) | entity |
+                            self.states.get(entity["entity_id"], {}))
         return dict(state=primary.get("isLightOn"), isLightOn=primary.get("isLightOn"),
-                    entities=[dict(dict(name=entity["entity_id"], isLightOn=None, available=False,
-                                        error=None, attributes={}), **entity,
-                                   ) | self.states.get(entity["entity_id"], {}) for entity in self._entities()])
+                    entities=entities)
 
     def _publish(self):
         self._plugin_manager.send_plugin_message(self._identifier, self._snapshot())
@@ -158,6 +173,7 @@ class OctoLightHAPlugin(
                         attributes={key: attributes[key] for key in (
                             "brightness", "rgb_color", "hs_color", "supported_color_modes", "supported_features"
                         ) if key in attributes})
+            item["capabilities"] = capabilities(entity_id, attributes)
         except HomeAssistantError as error:
             item = dict(isLightOn=None, available=False, error=str(error), attributes={})
         self.states[entity_id] = item
@@ -213,11 +229,32 @@ class OctoLightHAPlugin(
 
     def _control(self, action, entity_id=None, attributes=None, manual=True):
         with self._lock:
-            entity_id = self._entity(entity_id)["entity_id"]
+            entity = self._entity(entity_id)
+            entity_id = entity["entity_id"]
+            config = dict(self.config, **entity)
+            # Read before toggling so turn-on defaults are applied consistently.
+            if action == "toggle" or attributes or (action == "turn_on" and
+                    (config.get("applyBrightness") or config.get("applyColor"))):
+                state = self._refresh(entity_id)
+                if not state["available"]:
+                    self._publish()
+                    raise HomeAssistantError(state.get("error") or "The Home Assistant entity is unavailable.")
+                if action == "toggle":
+                    action = "turn_off" if state["isLightOn"] else "turn_on"
+            values = {}
+            if action == "turn_on":
+                if config.get("applyBrightness"):
+                    values["brightness"] = config["brightness"]
+                if config.get("applyColor"):
+                    values["color"] = config["color"]
+            supported = self.states.get(entity_id, {}).get("capabilities", {})
+            payload = light_attributes(values, supported, strict=False)
+            if attributes:
+                payload.update(light_attributes(attributes, supported))
             if manual:
                 self._cancel_idle(entity_id)
             try:
-                self._client().service(entity_id, action, **(attributes or {}))
+                self._client().service(entity_id, action, **payload)
             except HomeAssistantError as error:
                 self.states[entity_id] = dict(isLightOn=None, available=False, error=str(error), attributes={})
                 self._publish()
@@ -230,7 +267,7 @@ class OctoLightHAPlugin(
         return True
 
     def get_api_commands(self):
-        return dict(toggle=[], turnOn=[], turnOff=[], discover=[], test=[])
+        return dict(toggle=[], turnOn=[], turnOff=[], setLight=[], discover=[], test=[])
 
     def on_api_get(self, request):
         if not Permissions.STATUS.can():
@@ -262,10 +299,13 @@ class OctoLightHAPlugin(
                     return flask.jsonify(entities=[dict(entity_id=e["entity_id"],
                         name=e.get("attributes", {}).get("friendly_name", e["entity_id"]),
                         state=e.get("state")) for e in entities])
-                actions = dict(toggle="toggle", turnOn="turn_on", turnOff="turn_off")
+                actions = dict(toggle="toggle", turnOn="turn_on", turnOff="turn_off", setLight="turn_on")
                 if command not in actions:
                     return flask.jsonify(error="Unknown command."), 400
-                return flask.jsonify(self._control(actions[command], data.get("entity_id")))
+                attributes = {key: data[key] for key in ("brightness", "color", "flash") if key in data}
+                if command != "setLight" and attributes:
+                    raise HomeAssistantError("Use setLight to change brightness or colour.")
+                return flask.jsonify(self._control(actions[command], data.get("entity_id"), attributes))
         except HomeAssistantError as error:
             return flask.jsonify(error=str(error)), 400
 
@@ -279,8 +319,8 @@ class OctoLightHAPlugin(
             if event == Events.PRINT_STARTED:
                 self._print_generation += 1
                 self._cancel_idle()
-            if self._running and event in (Events.PRINT_STARTED, Events.PRINT_DONE,
-                                           Events.PRINT_FAILED, Events.PRINT_CANCELLED):
+            if self._running and event in (Events.PRINT_STARTED, Events.PRINT_DONE, Events.PRINT_PAUSED,
+                                           Events.PRINT_RESUMED, Events.ERROR, Events.PRINT_FAILED, Events.PRINT_CANCELLED):
                 self._executor.submit(self._handle_print_event, event, self._generation, self._print_generation)
 
     def _handle_print_event(self, event, generation, print_generation):
@@ -291,8 +331,14 @@ class OctoLightHAPlugin(
                 config = dict(self.config, **entity)
                 entity_id = entity["entity_id"]
                 try:
+                    themed = False
+                    turn_off = ((event == Events.PRINT_FAILED and config["turnOffPrintFailure"]) or
+                                (event == Events.PRINT_CANCELLED and config["turnOffPrintCancellation"]))
+                    if config.get("statusColorsEnabled") and entity_id.startswith("light.") and not turn_off:
+                        themed = self._status_color(event, entity_id, config)
                     if event == Events.PRINT_STARTED and config["turnOnPrintStart"]:
-                        self._control("turn_on", entity_id, manual=False)
+                        if not themed:
+                            self._control("turn_on", entity_id, manual=False)
                     elif event == Events.PRINT_DONE and config["turnOffPrintEnd"]:
                         self._cancel_idle(entity_id)
                         delay = max(0, float(config["turnOffPrintDelay"])) * 60
@@ -304,12 +350,28 @@ class OctoLightHAPlugin(
                             timer.daemon = True
                             self._idle_timers[entity_id] = (timer, token)
                             timer.start()
-                    elif ((event == Events.PRINT_FAILED and config["turnOffPrintFailure"]) or
-                          (event == Events.PRINT_CANCELLED and config["turnOffPrintCancellation"])):
+                    elif turn_off:
                         self._cancel_idle(entity_id)
                         self._control("turn_off", entity_id, manual=False)
                 except (HomeAssistantError, ValueError, TypeError) as error:
                     self._logger.warning("Print lighting failed: %s", error)
+
+    def _status_color(self, event, entity_id, config):
+        key = {Events.PRINT_STARTED: "printingColor", Events.PRINT_RESUMED: "printingColor",
+               Events.PRINT_PAUSED: "pausedColor", Events.PRINT_DONE: "successColor",
+               Events.PRINT_FAILED: "errorColor", Events.ERROR: "errorColor",
+               Events.PRINT_CANCELLED: "cancelledColor"}.get(event)
+        if not key:
+            return False
+        state = self._refresh(entity_id)
+        supported = state.get("capabilities", {})
+        if not state["available"] or not supported.get("color"):
+            return False
+        values = {"color": config[key]}
+        if config.get("alertFlash") and supported.get("flash") and event in (Events.ERROR, Events.PRINT_FAILED):
+            values["flash"] = "short"
+        self._control("turn_on", entity_id, values, manual=False)
+        return True
 
     def _idle_off(self, entity_id, generation, token):
         with self._lock:

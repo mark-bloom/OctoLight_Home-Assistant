@@ -70,6 +70,7 @@ def test_failed_command_does_not_invert_state(plugin):
     plugin.states['light.printer'] = dict(isLightOn=False)
     with patch.object(plugin, '_client') as factory:
         factory.return_value.service.side_effect = HomeAssistantError('Token rejected')
+        factory.return_value.state.return_value = dict(state='off', attributes={})
         with pytest.raises(HomeAssistantError):
             plugin._control('toggle')
     assert plugin.states['light.printer']['isLightOn'] is None
@@ -149,6 +150,52 @@ def test_shutdown_cancels_all_timers(plugin):
     timer.cancel.assert_called_once()
     poll.cancel.assert_called_once()
     assert not plugin._running
+
+
+def test_light_defaults_are_applied_on_toggle(plugin):
+    plugin.config.update(applyBrightness=True, brightness=80, applyColor=True, color="#ff0080")
+    with patch.object(plugin, "_client") as factory:
+        factory.return_value.state.return_value = dict(state="off", attributes={"supported_color_modes": ["rgb"]})
+        plugin._control("toggle")
+        factory.return_value.service.assert_called_once_with("light.printer", "turn_on", brightness_pct=80, rgb_color=[255, 0, 128])
+
+
+def test_manual_color_rejects_switch(plugin):
+    plugin.config["entity_id"] = "switch.printer"
+    with patch.object(plugin, "_client") as factory:
+        factory.return_value.state.return_value = dict(state="on", attributes={})
+        with pytest.raises(HomeAssistantError, match="does not support color"):
+            plugin._control("turn_on", attributes={"color": "#ff0000"})
+        factory.return_value.service.assert_not_called()
+
+
+def test_status_error_uses_native_short_flash(plugin):
+    plugin.config.update(statusColorsEnabled=True, alertFlash=True)
+    with patch.object(plugin, "_client") as factory:
+        factory.return_value.state.return_value = dict(state="on", attributes={
+            "supported_color_modes": ["rgb"], "supported_features": 8})
+        plugin._handle_print_event(Events.ERROR, plugin._generation, plugin._print_generation)
+        factory.return_value.service.assert_called_once_with("light.printer", "turn_on", rgb_color=[255, 0, 0], flash="short")
+
+
+def test_failure_shutoff_wins_over_status_color(plugin):
+    plugin.config.update(statusColorsEnabled=True, turnOffPrintFailure=True)
+    with patch.object(plugin, "_control") as control:
+        plugin._handle_print_event(Events.PRINT_FAILED, plugin._generation, plugin._print_generation)
+        control.assert_called_once_with("turn_off", "light.printer", manual=False)
+
+
+def test_additional_entities_are_independent(plugin):
+    plugin.config["additionalEntities"] = [{"entity_id": "switch.room", "turnOnPrintStart": True}]
+    with patch.object(plugin, "_control") as control:
+        plugin._handle_print_event(Events.PRINT_STARTED, plugin._generation, plugin._print_generation)
+        control.assert_called_once_with("turn_on", "switch.room", manual=False)
+
+
+def test_extra_entity_delay_validation(plugin):
+    plugin.config["additionalEntities"] = [{"entity_id": "switch.room", "turnOffPrintDelay": -1}]
+    with pytest.raises(HomeAssistantError, match="delay"):
+        plugin._validate_settings(plugin.config)
 
 
 @pytest.mark.parametrize(

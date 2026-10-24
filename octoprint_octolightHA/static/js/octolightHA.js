@@ -11,6 +11,7 @@ $(function () {
         self.selectedEntity = ko.observable();
         self.message = ko.observable("");
         self.busy = ko.observable(false);
+        self.rows = {};
         self.canControl = ko.pureComputed(function () {
             return self.loginState.hasPermission(self.access.permissions.CONTROL);
         });
@@ -27,7 +28,17 @@ $(function () {
             self.settings = self.settingsViewModel.settings;
         };
         self.apply = function (data) {
-            if (data && data.entities) self.entities(data.entities);
+            if (!data || !data.entities) return;
+            self.entities(data.entities.map(function (entity) {
+                var previous = self.rows[entity.entity_id];
+                var attrs = entity.attributes || {};
+                entity.brightnessValue = previous ? previous.brightnessValue : ko.observable(Math.round((attrs.brightness || 255) / 255 * 100));
+                var channels = attrs.rgb_color || [255, 255, 255];
+                var hex = "#" + channels.map(function (n) { return ("0" + n.toString(16)).slice(-2); }).join("");
+                entity.colorValue = previous ? previous.colorValue : ko.observable(hex);
+                self.rows[entity.entity_id] = entity;
+                return entity;
+            }));
         };
         self.failure = function (xhr) {
             var error = xhr.responseJSON && xhr.responseJSON.error;
@@ -45,6 +56,12 @@ $(function () {
         self.toggle = function (entity) {
             if (!self.canControl() || self.busy()) return;
             self.command("toggle", {entity_id: entity.entity_id});
+        };
+        self.setBrightness = function (entity) {
+            if (self.canControl() && !self.busy()) self.command("setLight", {entity_id: entity.entity_id, brightness: Number(entity.brightnessValue())});
+        };
+        self.setColor = function (entity) {
+            if (self.canControl() && !self.busy()) self.command("setLight", {entity_id: entity.entity_id, color: entity.colorValue()});
         };
         self.connection = function () {
             var config = self.settings.plugins.octolightHA;
