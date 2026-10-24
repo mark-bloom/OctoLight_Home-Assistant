@@ -1,1 +1,8 @@
-<a id="light_indicator" class="off" onclick='OctoPrint.simpleApiGet("octolightHA")' style="font-size: 1.3em; text-shadow: 0px 0px 2px #000; cursor: pointer; user-select: none">&#x1F4A1;</a>
+<!-- ko foreach: entities -->
+<a href="#" class="octolight-indicator" role="button" data-bind="click: $root.toggle,
+    css: {off: !isLightOn, unavailable: !available},
+    attr: {title: (name || entity_id) + (error ? ': ' + error : (available ? (isLightOn ? ': on' : ': off') : ': unavailable')),
+           'aria-disabled': !$root.canControl() || $root.busy(), 'aria-pressed': !!isLightOn}">
+    <i data-bind="css: icon === 'power-off' ? 'fa fa-power-off' : 'fa fa-lightbulb-o'"></i>
+</a>
+<!-- /ko -->
