@@ -39,6 +39,7 @@ class OctoLightHAPlugin(
             pollInterval=10, icon="lightbulb", additionalEntities=[],
             applyBrightness=False, brightness=100, applyColor=False, color="#ffffff",
             statusColorsEnabled=False, alertFlash=False,
+            enableGcode=False,
             printingColor="#ffffff", pausedColor="#ff9900", successColor="#00ff00",
             errorColor="#ff0000", cancelledColor="#ff6600",
         )
@@ -396,6 +397,34 @@ class OctoLightHAPlugin(
             pip="https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/{target_version}.zip",
         ))
 
+    def process_atcommand(self, comm, phase, command, parameters, tags=None, *args, **kwargs):
+        """Opt-in host commands; no firmware M-code is intercepted or forwarded."""
+        if command != "OCTOLIGHT":
+            return
+        with self._lock:
+            if not self._running or not self.config.get("enableGcode"):
+                return
+            parts = parameters.strip().split()
+            actions = {"on": "turn_on", "off": "turn_off", "toggle": "toggle"}
+            if not 1 <= len(parts) <= 2 or parts[0].lower() not in actions:
+                self._logger.warning("Use @OCTOLIGHT on|off|toggle [configured_entity_id]")
+                return
+            try:
+                entity_id = self._entity(parts[1] if len(parts) == 2 else None)["entity_id"]
+            except HomeAssistantError as error:
+                self._logger.warning("Lighting command rejected: %s", error)
+                return
+            self._executor.submit(self._queued_control, actions[parts[0].lower()], entity_id, self._generation)
+
+    def _queued_control(self, action, entity_id, generation):
+        with self._lock:
+            if not self._running or generation != self._generation:
+                return
+            try:
+                self._control(action, entity_id)
+            except HomeAssistantError as error:
+                self._logger.warning("Lighting command failed: %s", error)
+
 
 __plugin_name__ = "OctoLight Home Assistant"
 __plugin_pythoncompat__ = ">=3.9,<4"
@@ -406,4 +435,5 @@ def __plugin_load__():
     __plugin_implementation__ = OctoLightHAPlugin()
     __plugin_hooks__ = {
         "octoprint.plugin.softwareupdate.check_config": __plugin_implementation__.get_update_information,
+        "octoprint.comm.protocol.atcommand.queuing": __plugin_implementation__.process_atcommand,
     }
