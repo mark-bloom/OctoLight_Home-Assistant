@@ -8,3 +8,8 @@ dist
 .DS_Store
 *.zip
 debug.log
+node_modules/
+.pytest_cache/
+.ruff_cache/
+__pycache__/
+.venv/

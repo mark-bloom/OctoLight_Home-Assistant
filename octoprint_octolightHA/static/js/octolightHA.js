@@ -11,6 +11,7 @@ $(function () {
         self.selectedEntity = ko.observable();
         self.message = ko.observable("");
         self.busy = ko.observable(false);
+        self.rows = {};
         self.canControl = ko.pureComputed(function () {
             return self.loginState.hasPermission(self.access.permissions.CONTROL);
         });
@@ -27,7 +28,26 @@ $(function () {
             self.settings = self.settingsViewModel.settings;
         };
         self.apply = function (data) {
-            if (data && data.entities) self.entities(data.entities);
+            if (!data || !data.entities) return;
+            self.entities(data.entities.map(function (entity) {
+                var row = self.rows[entity.entity_id];
+                if (!row) {
+                    row = {entity_id: entity.entity_id, brightnessValue: ko.observable(100), colorValue: ko.observable("#ffffff")};
+                    ["name", "icon", "isLightOn", "available", "error", "capabilities"].forEach(function (key) { row[key] = ko.observable(); });
+                }
+                ["name", "icon", "isLightOn", "available", "error"].forEach(function (key) { row[key](entity[key]); });
+                row.capabilities(entity.capabilities || {});
+                var attrs = entity.attributes || {};
+                var focused = document.activeElement;
+                var editing = focused && focused.tagName === "INPUT" && $(focused).closest("[data-octolight-entity]").attr("data-octolight-entity") === entity.entity_id;
+                if (!editing) {
+                    row.brightnessValue(Math.max(1, Math.round((attrs.brightness || 255) / 255 * 100)));
+                    var channels = attrs.rgb_color || [255, 255, 255];
+                    row.colorValue("#" + channels.map(function (n) { return ("0" + Math.round(n).toString(16)).slice(-2); }).join(""));
+                }
+                self.rows[entity.entity_id] = row;
+                return row;
+            }));
         };
         self.failure = function (xhr) {
             var error = xhr.responseJSON && xhr.responseJSON.error;
@@ -45,6 +65,12 @@ $(function () {
         self.toggle = function (entity) {
             if (!self.canControl() || self.busy()) return;
             self.command("toggle", {entity_id: entity.entity_id});
+        };
+        self.setBrightness = function (entity) {
+            if (self.canControl() && !self.busy()) self.command("setLight", {entity_id: entity.entity_id, brightness: Number(entity.brightnessValue())});
+        };
+        self.setColor = function (entity) {
+            if (self.canControl() && !self.busy()) self.command("setLight", {entity_id: entity.entity_id, color: entity.colorValue()});
         };
         self.connection = function () {
             var config = self.settings.plugins.octolightHA;
@@ -81,10 +107,12 @@ $(function () {
         };
         self.onStartupComplete = self.refresh;
         self.onUserLoggedIn = self.refresh;
-        self.onUserLoggedOut = function () { self.entities([]); };
+        self.onUserLoggedOut = function () { self.entities([]); self.rows = {}; };
         self.onDataUpdaterReconnect = self.refresh;
         self.onDataUpdaterPluginMessage = function (plugin, data) {
-            if (plugin === "octolightHA" && self.loginState.isUser()) self.apply(data);
+            if (plugin !== "octolightHA" || !self.loginState.isUser()) return;
+            if (data.settingsError) self.failure({responseJSON: {error: data.settingsError}});
+            self.apply(data);
         };
     }
     OCTOPRINT_VIEWMODELS.push({construct: OctolightHAViewModel,

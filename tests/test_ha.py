@@ -11,7 +11,10 @@ def client():
     return HomeAssistant(" https://ha.local/ ", "secret")
 
 
-@pytest.mark.parametrize("status,message", [(401, "token"), (403, "permissions"), (404, "entity"), (500, "500"), (302, "302")])
+@pytest.mark.parametrize(
+    "status,message",
+    [(401, "token"), (403, "permissions"), (404, "entity"), (500, "500"), (302, "302")],
+)
 def test_http_errors(client, status, message):
     with patch("requests.request", return_value=Mock(status_code=status)):
         with pytest.raises(HomeAssistantError, match=message):
@@ -39,7 +42,9 @@ def test_invalid_entity(client, entity):
         request.assert_not_called()
 
 
-@pytest.mark.parametrize("error", [requests.Timeout(), requests.ConnectionError(), requests.exceptions.SSLError()])
+@pytest.mark.parametrize(
+    "error", [requests.Timeout(), requests.ConnectionError(), requests.exceptions.SSLError()]
+)
 def test_network_errors_do_not_leak_credentials(client, error):
     with patch("requests.request", side_effect=error):
         with pytest.raises(HomeAssistantError) as caught:
@@ -55,7 +60,17 @@ def test_invalid_json(client):
             client.state("light.printer")
 
 
-@pytest.mark.parametrize("url", ["", "ha.local", "ftp://ha.local", "http://user:secret@ha.local", "http://ha.local?token=x", "http://ha.local:bad"])
+@pytest.mark.parametrize(
+    "url",
+    [
+        "",
+        "ha.local",
+        "ftp://ha.local",
+        "http://user:secret@ha.local",
+        "http://ha.local?token=x",
+        "http://ha.local:bad",
+    ],
+)
 def test_invalid_address(url):
     with pytest.raises(HomeAssistantError):
         HomeAssistant(url, "secret")
