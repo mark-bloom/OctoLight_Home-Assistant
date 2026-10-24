@@ -1,4 +1,6 @@
 include README.md
 recursive-include octoprint_octolightHA/templates *
-recursive-include octoprint_octolightHA/translations *
 recursive-include octoprint_octolightHA/static *
+include Taskfile.yml
+include package.json package-lock.json
+recursive-include tests *.py *.cjs

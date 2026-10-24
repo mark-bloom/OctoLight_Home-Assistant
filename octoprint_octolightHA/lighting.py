@@ -1,4 +1,5 @@
 """Capability detection and validation shared by manual and automatic lighting."""
+
 import re
 
 from .ha import HomeAssistantError
@@ -21,7 +22,7 @@ def capabilities(entity_id, attributes):
 def rgb(hex_color):
     if not isinstance(hex_color, str) or not re.fullmatch(r"#[0-9a-fA-F]{6}", hex_color):
         raise HomeAssistantError("Choose a colour in #RRGGBB format.")
-    return [int(hex_color[index:index + 2], 16) for index in (1, 3, 5)]
+    return [int(hex_color[index : index + 2], 16) for index in (1, 3, 5)]
 
 
 def brightness(value):

@@ -1,0 +1,15 @@
+version: "3"
+tasks:
+  test:
+    desc: Run backend regression tests
+    cmds:
+      - python -m pytest -q
+  lint:
+    desc: Check Python and JavaScript
+    cmds:
+      - ruff check .
+      - node --check octoprint_octolightHA/static/js/octolightHA.js
+  build:
+    desc: Build isolated source and wheel distributions
+    cmds:
+      - python -m build
