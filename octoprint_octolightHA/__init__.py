@@ -20,6 +20,7 @@ class OctoLightHAPlugin(
     octoprint.plugin.SimpleApiPlugin,
     octoprint.plugin.SettingsPlugin,
     octoprint.plugin.EventHandlerPlugin,
+    octoprint.plugin.RestartNeedingPlugin,
 ):
     def __init__(self):
         self.config = {}

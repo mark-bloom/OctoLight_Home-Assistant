@@ -1,8 +1,23 @@
 <!-- ko foreach: entities -->
+<span class="dropdown octolight-control" data-bind="attr: {'data-octolight-entity': entity_id}">
 <a href="#" class="octolight-indicator" role="button" data-bind="click: $root.toggle,
-    css: {off: !isLightOn, unavailable: !available},
-    attr: {title: (name || entity_id) + (error ? ': ' + error : (available ? (isLightOn ? ': on' : ': off') : ': unavailable')),
-           'aria-disabled': !$root.canControl() || $root.busy(), 'aria-pressed': !!isLightOn}">
-    <i data-bind="css: icon === 'power-off' ? 'fa fa-power-off' : 'fa fa-lightbulb-o'"></i>
+    css: {off: !isLightOn(), unavailable: !available()},
+    attr: {title: (name() || entity_id) + (error() ? ': ' + error() : (available() ? (isLightOn() ? ': on' : ': off') : ': unavailable')),
+           'aria-label': 'Toggle ' + (name() || entity_id),
+           'aria-disabled': !$root.canControl() || $root.busy(), 'aria-pressed': !!isLightOn()}">
+    <i data-bind="css: icon() === 'power-off' ? 'fa fa-power-off' : 'fa fa-lightbulb-o'"></i>
 </a>
+<a href="#" class="dropdown-toggle octolight-menu-toggle" data-toggle="dropdown" role="button" aria-label="Light controls"><span class="caret"></span></a>
+<div class="dropdown-menu octolight-live" data-bind="click: function() {return true;}, clickBubble: false">
+    <strong data-bind="text: name() || entity_id"></strong>
+    <p role="status" data-bind="text: error"></p>
+    <!-- ko if: capabilities().brightness -->
+    <label>Brightness (%) <input type="range" min="1" max="100" data-bind="value: brightnessValue, event: {change: $root.setBrightness}, enable: $root.canControl() &amp;&amp; !$root.busy()"></label>
+    <!-- /ko -->
+    <!-- ko if: capabilities().color -->
+    <label>Colour <input type="color" data-bind="value: colorValue, event: {change: $root.setColor}, enable: $root.canControl() &amp;&amp; !$root.busy()"></label>
+    <!-- /ko -->
+    <span data-bind="visible: !capabilities().brightness &amp;&amp; !capabilities().color">On/off control only</span>
+</div>
+</span>
 <!-- /ko -->

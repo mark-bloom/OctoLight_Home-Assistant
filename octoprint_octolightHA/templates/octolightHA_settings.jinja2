@@ -101,14 +101,14 @@
     <p>Failure/cancellation shutoff takes priority over colours. Completion colours remain until the configured shutoff delay.</p>
     <h5>Live controls (saved entities)</h5>
     <!-- ko foreach: entities -->
-    <div class="octolight-entity">
-        <strong data-bind="text: name || entity_id"></strong>
-        <button type="button" class="btn" data-bind="click: $root.toggle, enable: $root.canControl() &amp;&amp; !$root.busy(), text: isLightOn ? 'Turn off' : 'Turn on'"></button>
+    <div class="octolight-entity" data-bind="attr: {'data-octolight-entity': entity_id}">
+        <strong data-bind="text: name() || entity_id"></strong>
+        <button type="button" class="btn" data-bind="click: $root.toggle, enable: $root.canControl() &amp;&amp; !$root.busy(), text: isLightOn() ? 'Turn off' : 'Turn on'"></button>
         <span role="status" data-bind="text: error"></span>
-        <!-- ko if: capabilities.brightness -->
+        <!-- ko if: capabilities().brightness -->
         <label>Brightness (%) <input type="range" min="1" max="100" data-bind="value: brightnessValue, event: {change: $root.setBrightness}, enable: $root.canControl() &amp;&amp; !$root.busy()"></label>
         <!-- /ko -->
-        <!-- ko if: capabilities.color -->
+        <!-- ko if: capabilities().color -->
         <label>Colour <input type="color" data-bind="value: colorValue, event: {change: $root.setColor}, enable: $root.canControl() &amp;&amp; !$root.busy()"></label>
         <!-- /ko -->
     </div>

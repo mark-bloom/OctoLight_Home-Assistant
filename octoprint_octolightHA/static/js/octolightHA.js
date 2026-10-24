@@ -30,14 +30,23 @@ $(function () {
         self.apply = function (data) {
             if (!data || !data.entities) return;
             self.entities(data.entities.map(function (entity) {
-                var previous = self.rows[entity.entity_id];
+                var row = self.rows[entity.entity_id];
+                if (!row) {
+                    row = {entity_id: entity.entity_id, brightnessValue: ko.observable(100), colorValue: ko.observable("#ffffff")};
+                    ["name", "icon", "isLightOn", "available", "error", "capabilities"].forEach(function (key) { row[key] = ko.observable(); });
+                }
+                ["name", "icon", "isLightOn", "available", "error"].forEach(function (key) { row[key](entity[key]); });
+                row.capabilities(entity.capabilities || {});
                 var attrs = entity.attributes || {};
-                entity.brightnessValue = previous ? previous.brightnessValue : ko.observable(Math.round((attrs.brightness || 255) / 255 * 100));
-                var channels = attrs.rgb_color || [255, 255, 255];
-                var hex = "#" + channels.map(function (n) { return ("0" + n.toString(16)).slice(-2); }).join("");
-                entity.colorValue = previous ? previous.colorValue : ko.observable(hex);
-                self.rows[entity.entity_id] = entity;
-                return entity;
+                var focused = document.activeElement;
+                var editing = focused && focused.tagName === "INPUT" && $(focused).closest("[data-octolight-entity]").attr("data-octolight-entity") === entity.entity_id;
+                if (!editing) {
+                    row.brightnessValue(Math.max(1, Math.round((attrs.brightness || 255) / 255 * 100)));
+                    var channels = attrs.rgb_color || [255, 255, 255];
+                    row.colorValue("#" + channels.map(function (n) { return ("0" + Math.round(n).toString(16)).slice(-2); }).join(""));
+                }
+                self.rows[entity.entity_id] = row;
+                return row;
             }));
         };
         self.failure = function (xhr) {
@@ -98,10 +107,12 @@ $(function () {
         };
         self.onStartupComplete = self.refresh;
         self.onUserLoggedIn = self.refresh;
-        self.onUserLoggedOut = function () { self.entities([]); };
+        self.onUserLoggedOut = function () { self.entities([]); self.rows = {}; };
         self.onDataUpdaterReconnect = self.refresh;
         self.onDataUpdaterPluginMessage = function (plugin, data) {
-            if (plugin === "octolightHA" && self.loginState.isUser()) self.apply(data);
+            if (plugin !== "octolightHA" || !self.loginState.isUser()) return;
+            if (data.settingsError) self.failure({responseJSON: {error: data.settingsError}});
+            self.apply(data);
         };
     }
     OCTOPRINT_VIEWMODELS.push({construct: OctolightHAViewModel,

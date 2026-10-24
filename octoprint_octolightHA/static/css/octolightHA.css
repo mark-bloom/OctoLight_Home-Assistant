@@ -7,3 +7,8 @@
 #navbar_plugin_octolightHA .octolight-indicator.unavailable { opacity: .5; }
 #navbar_plugin_octolightHA .octolight-indicator[aria-disabled="true"] { cursor: default; }
 #settings_plugin_octolightHA .octolight-entity { border-top: 1px solid #ccc; padding-top: 12px; }
+#navbar_plugin_octolightHA .octolight-control { display: inline-block; position: relative; }
+#navbar_plugin_octolightHA .octolight-indicator,
+#navbar_plugin_octolightHA .octolight-menu-toggle { display: inline-block; padding: 10px 4px; }
+#navbar_plugin_octolightHA .octolight-live { padding: 12px; min-width: 200px; left: auto; right: 0; }
+#navbar_plugin_octolightHA .octolight-menu-toggle .caret { vertical-align: middle; }
