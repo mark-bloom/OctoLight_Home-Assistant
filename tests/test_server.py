@@ -32,7 +32,8 @@ def wait_for(check, timeout=30):
     pytest.fail("Timed out waiting for local test server")
 
 
-def test_real_octoprint_api(tmp_path):
+@pytest.mark.parametrize("installation", ["fresh", "implicit-tls", "verified", "unverified"])
+def test_real_octoprint_api(tmp_path, installation):
     class HA(BaseHTTPRequestHandler):
         state = "off"
         calls = []
@@ -78,6 +79,23 @@ def test_real_octoprint_api(tmp_path):
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         port = sock.getsockname()[1]
+    # These fields use the original plugin's namespace and pre-upgrade schema.
+    # No import API or second plugin identity should be necessary after upgrading.
+    legacy = dict(
+        address="http://127.0.0.1:" + str(ha.server_port) + "/",
+        api_key="local-ha-test-token",
+        entity_id="light.printer",
+        turnOnPrintStart=False,
+        turnOffPrintEnd=True,
+        turnOffPrintDelay=12,
+        turnOffPrintFailure=True,
+        turnOffPrintCancellation=True,
+        unknown_legacy_marker="preserve",
+    )
+    if installation in ("verified", "unverified"):
+        legacy["verify_certificate"] = installation == "verified"
+    # OctoPrint removes stored values equal to the current defaults when saving.
+    storage_defaults = {"turnOnPrintStart": False, "verify_certificate": True}
     config = {
         "server": {
             "firstRun": False,
@@ -95,9 +113,12 @@ def test_real_octoprint_api(tmp_path):
                 "pluginmanager",
                 "health_check",
                 "healthcheck",
+                "ha_light_control",
             ]
         },
     }
+    if installation != "fresh":
+        config["plugins"]["octolightHA"] = legacy
     (tmp_path / "config.yaml").write_text(yaml.safe_dump(config))
     command = [sys.executable, "-m", "octoprint", "-b", str(tmp_path)]
     for name, group in (("admin", "admins"), ("reader", "readonly")):
@@ -136,6 +157,19 @@ def test_real_octoprint_api(tmp_path):
         admin = login("admin")
         reader = login("reader")
         api = base + "/api/plugin/octolightHA"
+        asset = admin.get(base + "/plugin/octolightHA/static/js/octolightHA.js", timeout=5)
+        assert asset.status_code == 200
+        assert 'simpleApiCommand("octolightHA"' in asset.text
+        settings = admin.get(base + "/api/settings", timeout=5).json()["plugins"]["octolightHA"]
+        assert settings["verify_certificate"] is (installation in ("fresh", "verified"))
+        if installation != "fresh":
+            wait_for(lambda: admin.get(api, timeout=5).json()["state"] is False)
+            for key, value in legacy.items():
+                assert settings[key] == value
+            persisted = yaml.safe_load((tmp_path / "config.yaml").read_text())["plugins"]
+            for key, value in legacy.items():
+                assert persisted["octolightHA"].get(key, storage_defaults.get(key)) == value
+            assert "ha_light_control" not in persisted
         assert reader.post(api, json={"command": "turnOn"}, timeout=5).status_code == 403
         assert reader.post(api, json={"command": "discover"}, timeout=5).status_code == 403
         connection = dict(
@@ -172,6 +206,18 @@ def test_real_octoprint_api(tmp_path):
         restricted = reader.get(base + "/api/settings", timeout=5).json()
         assert restricted["plugins"]["octolightHA"]["api_key"] is None
         assert "local-ha-test-token" not in (tmp_path / "logs/octoprint.log").read_text()
+        if installation != "fresh":
+            persisted = yaml.safe_load((tmp_path / "config.yaml").read_text())["plugins"]
+            for key in (
+                "turnOnPrintStart",
+                "turnOffPrintEnd",
+                "turnOffPrintDelay",
+                "turnOffPrintFailure",
+                "turnOffPrintCancellation",
+                "unknown_legacy_marker",
+            ):
+                assert persisted["octolightHA"].get(key, storage_defaults.get(key)) == legacy[key]
+            assert "ha_light_control" not in persisted
     finally:
         server.terminate()
         try:

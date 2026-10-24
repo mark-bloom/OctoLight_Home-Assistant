@@ -360,3 +360,22 @@ def test_queued_host_appearance_reaches_light_control(plugin):
         control.assert_called_once_with(
             "turn_on", "light.printer", {"brightness": 75, "color": "#ff8000"}
         )
+
+
+def test_update_information_preserves_upstream_identity_and_source(plugin):
+    plugin._plugin_version = "0.3.0"
+    info = plugin.get_update_information()
+    assert set(info) == {"octolightHA"}
+    update = info["octolightHA"]
+    assert update["user"] == "mark-bloom"
+    assert update["repo"] == "OctoLight_Home-Assistant"
+    assert update["pip"] == (
+        "https://github.com/mark-bloom/OctoLight_Home-Assistant/archive/{target_version}.zip"
+    )
+
+
+def test_standalone_fork_command_is_not_claimed(plugin):
+    plugin.config["enableGcode"] = True
+    with patch.object(plugin._executor, "submit") as submit:
+        plugin.process_atcommand(None, "queuing", "HALIGHT", "on")
+        submit.assert_not_called()

@@ -35,7 +35,7 @@ const pluginRoot = path.resolve("octoprint_octolightHA");
             window.OctoPrint = {
                 simpleApiGet: function () { calls.push({method: "GET"}); return $.Deferred().resolve(snapshot).promise(); },
                 simpleApiCommand: function (plugin, command, data) {
-                    calls.push({method: "POST", command: command, data: data});
+                    calls.push({method: "POST", plugin: plugin, command: command, data: data});
                     if (command === "discover") return $.Deferred().resolve({entities: [{entity_id: "switch.desk_lamp", name: "Desk lamp", state: "off"}]}).promise();
                     if (command === "test") return $.Deferred().resolve({state: "off"}).promise();
                     return $.Deferred().resolve(snapshot).promise();
@@ -66,6 +66,7 @@ const pluginRoot = path.resolve("octoprint_octolightHA");
         assert.equal(await page.evaluate(() => vm.entities()[0].brightnessValue()), 80);
         await page.locator(".octolight-indicator").click();
         assert.equal(await page.evaluate(() => calls.at(-1).command), "toggle");
+        assert.equal(await page.evaluate(() => calls.at(-1).plugin), "octolightHA");
         await page.evaluate(() => allowControl(false));
         await page.locator(".octolight-indicator").dispatchEvent("click");
         assert.equal(await page.evaluate(() => calls.filter(c => c.command === "toggle").length), 1);

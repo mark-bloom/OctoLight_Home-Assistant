@@ -31,10 +31,12 @@ jobs:
         run: python scripts/check_release.py
       - name: Checksum distributions
         run: sha256sum dist/*.whl dist/*.tar.gz > dist/SHA256SUMS
+      - name: Extract release notes from changelog
+        run: python scripts/release_notes.py > "$RUNNER_TEMP/release-notes.md"
       - name: Create draft release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >-
           gh release create "$GITHUB_REF_NAME" dist/*
-          --draft --generate-notes
+          --draft --notes-file "$RUNNER_TEMP/release-notes.md"
           --title "OctoLight Home Assistant $GITHUB_REF_NAME"
