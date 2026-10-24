@@ -41,6 +41,19 @@ class OctoLightHAPlugin(
     def get_settings_restricted_paths(self):
         return {"admin": [["api_key"]]}
 
+    def get_settings_version(self):
+        return 1
+
+    def on_settings_migrate(self, target, current):
+        # Older defaults disabled verification, so an absent stored key can mean
+        # an existing self-signed installation. Preserve it only during upgrade.
+        if (
+            current is None
+            and self._settings.get(["address"])
+            and not self._settings.has(["verify_certificate"], incl_defaults=False)
+        ):
+            self._settings.set_boolean(["verify_certificate"], False)
+
     def on_settings_initialized(self):
         self.reload_settings()
 

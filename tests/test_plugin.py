@@ -149,3 +149,14 @@ def test_shutdown_cancels_all_timers(plugin):
     timer.cancel.assert_called_once()
     poll.cancel.assert_called_once()
     assert not plugin._running
+
+
+@pytest.mark.parametrize(
+    "existing,explicit,expected", [(False, False, False), (True, False, True), (True, True, False)]
+)
+def test_legacy_tls_migration(plugin, existing, explicit, expected):
+    plugin._settings = Mock()
+    plugin._settings.get.return_value = "http://ha.local" if existing else ""
+    plugin._settings.has.return_value = explicit
+    plugin.on_settings_migrate(1, None)
+    assert plugin._settings.set_boolean.called is expected
